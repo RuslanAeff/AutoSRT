@@ -93,20 +93,21 @@ VIDEO_EXTENSIONS = (
 BG          = ("#f4f5f7", "#0a0a0d")
 SIDEBAR     = ("#ffffff", "#0f0f14")
 SURFACE     = ("#ffffff", "#121218")
-SURFACE2    = ("#eceef2", "#17171f")
-HOVER       = ("#e2e5ea", "#1d1d27")
-BORDER      = ("#dde0e6", "#242430")
-BORDER_SOFT = ("#e7e9ee", "#1b1b24")
+SURFACE2    = ("#e7eaf0", "#17171f")
+HOVER       = ("#dadfe7", "#1d1d27")
+BORDER      = ("#c4ccd8", "#242430")
+BORDER_SOFT = ("#ccd4df", "#1b1b24")
 TEXT        = ("#16181d", "#f3f4f6")
-MUTED       = ("#6b7280", "#71717f")
-FAINT       = ("#9aa1ad", "#45454f")
+MUTED       = ("#5b6472", "#8a93a3")
+FAINT       = ("#8b94a3", "#45454f")
 
-GREEN = "#22c55e"
+GREEN = "#16a34a"
 RED   = "#f43f5e"
-WARN  = "#f59e0b"
-# Günlük paneli her iki modda da koyu kalır (gömülü terminal estetiği)
-TERM_BG  = "#0c0c10"
-TERM_TXT = "#9af2bd"
+WARN  = "#d97706"
+# Günlük paneli: açık modda yumuşak gri, koyu modda gömülü terminal koyusu
+TERM_BG    = ("#e9edf3", "#0c0c10")
+TERM_TXT   = ("#15803d", "#9af2bd")
+TERM_PANEL = ("#dfe4ec", "#13131a")   # panel başlık/temizle düğmesi zemini
 
 FONT_UI   = "Segoe UI"
 FONT_MONO = "Consolas"
@@ -455,7 +456,8 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.open_btn = ctk.CTkButton(actions, text=self.t("open_folder"), width=150,
                                       height=50, corner_radius=12, fg_color=SURFACE2,
                                       hover_color=HOVER, border_width=1, border_color=BORDER,
-                                      text_color=TEXT, font=ctk.CTkFont(FONT_UI, 13),
+                                      text_color=TEXT, text_color_disabled=MUTED,
+                                      font=ctk.CTkFont(FONT_UI, 13),
                                       state="disabled", command=self.open_output_folder)
         self.open_btn.grid(row=0, column=1)
 
@@ -500,9 +502,9 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
                                     text_color=MUTED)
         self.log_cap.grid(row=0, column=0, sticky="w")
         self.clear_btn = ctk.CTkButton(lhead, text=self.t("clear"), width=72, height=28,
-                                       corner_radius=8, fg_color="#1a1a22", hover_color="#23232d",
-                                       text_color="#cbd5e1", font=ctk.CTkFont(FONT_UI, 11),
-                                       command=self._clear_log)
+                                       corner_radius=8, fg_color=TERM_PANEL, hover_color=HOVER,
+                                       text_color=TEXT, border_width=1, border_color=BORDER,
+                                       font=ctk.CTkFont(FONT_UI, 11), command=self._clear_log)
         self.clear_btn.grid(row=0, column=1, sticky="e")
         self.log_box = ctk.CTkTextbox(logc, corner_radius=10, fg_color=TERM_BG,
                                       text_color=TERM_TXT,
@@ -924,7 +926,8 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
             self.browse_btn.configure(state="disabled")
             self.model_menu.configure(state="disabled")
             self.primary_btn.configure(text=self.t("stop"), state="normal",
-                                       fg_color=RED, hover_color="#e11d48")
+                                       fg_color=RED, hover_color="#e11d48",
+                                       text_color="#ffffff", border_width=0)
         else:
             self.cancel_event.clear()
             self.browse_btn.configure(state="normal")
@@ -938,10 +941,13 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
             return
         if self.video_path:
             self.primary_btn.configure(text=self.t("start"), state="normal",
-                                       fg_color=self.accent, hover_color=self.accent_hover)
+                                       fg_color=self.accent, hover_color=self.accent_hover,
+                                       text_color="#ffffff", border_width=0)
         else:
             self.primary_btn.configure(text=self.t("need_file"), state="disabled",
-                                       fg_color=SURFACE2, hover_color=HOVER)
+                                       fg_color=SURFACE2, hover_color=HOVER,
+                                       text_color_disabled=MUTED,
+                                       border_width=1, border_color=BORDER)
 
 
 if __name__ == "__main__":
