@@ -13,9 +13,12 @@
 
 | | TR | EN |
 |---|---|---|
-| 🎨 | Kenar çubuklu, sade premium koyu tema | Sidebar-based premium dark UI |
+| 🎨 | Kenar çubuklu, sade premium arayüz | Sidebar-based premium UI |
+| 🌗 | Açık / Koyu mod geçişi | Light / Dark mode toggle |
 | 🌐 | Canlı TR / EN dil değiştirme | Live language toggle (TR / EN) |
 | 🎨 | 4 vurgu rengi — tüm arayüz birlikte değişir | 4 accent themes applied system-wide |
+| 🎚️ | Okunabilirlik ayarları: karakter sınırı, min. süre, cümle-sonu bölme | Readability controls: char limit, min duration, sentence-end split |
+| 🔔 | İşlem bitince Windows bildirimi (tıkla → klasörü aç) | Windows toast on completion (click → open folder) |
 | 🖱️ | Sürükle & bırak + parlama efekti | Drag & drop with glow-on-hover |
 | 📊 | Gerçek zamanlı ilerleme + ETA + canlı istatistik | Real-time progress bar + ETA + live stats |
 | ⏹ | Dilediğin an durdurabilme | Stop button mid-transcription |
@@ -70,10 +73,18 @@ AutoSRT.vbs
 ```
 
 1. Videoyu sürükleyip bırakın **veya** "Video Seç" ile seçin.
-2. (İsteğe bağlı) Sol panelden model ve dil seçin.
+2. (İsteğe bağlı) Sol panelden model, dil, tema ve **okunabilirlik ayarlarını** belirleyin.
 3. **"Altyazı Oluştur"** butonuna tıklayın.
 4. İlerleme çubuğu, ETA ve Günlük panelinden takip edin.
-5. `.srt` dosyası videonun yanına otomatik kaydedilir.
+5. Bitince Windows bildirimi gelir; `.srt` dosyası videonun yanına otomatik kaydedilir.
+
+### Okunabilirlik ayarları / Readability settings
+Altyazıların ekranda "şak şak" hızlı geçmesini engellemek için:
+- **Karakter sınırı** (20–90, varsayılan 45): yükseltince satırlar uzar, daha az/yavaş değişir.
+- **Min. süre** (0–2 sn): çok kısa bloklar, sonraki bloğa taşmadan en az bu süre ekranda kalır.
+- **Cümle sonunda böl**: açıkken yalnızca `. ? !` ile böler (virgülde bölmez) → daha akıcı.
+
+> Varsayılan değerlerde (45 / 0 / kapalı) çıktı, orijinal CLI koduyla **birebir** aynıdır.
 
 ---
 
@@ -82,6 +93,7 @@ AutoSRT.vbs
 ```
 customtkinter>=5.2.2
 tkinterdnd2>=0.4.2
+winotify>=1.1.0
 faster-whisper>=1.0.3
 nvidia-cublas-cu12
 nvidia-cudnn-cu12
@@ -105,9 +117,10 @@ AutoSRT/
 - Thread ↔ GUI iletişimi `queue.Queue` + `after()` polling ile yapılır (Tkinter thread-safety).
 - `sys.stdout/stderr` günlük kuyruğuna yönlendirilir → model indirme ilerlemesi de panelde görünür.
 
-**Mikro-dilimleme mantığı (`max_chars=45`):**
+**Mikro-dilimleme mantığı (varsayılan `max_chars=45`):**
 - `word_timestamps=True` ile kelime düzeyinde zaman damgası alınır.
-- 45 karakter veya noktalama işaretine ulaşıldığında yeni blok açılır.
+- Karakter sınırına veya (ayara göre) noktalama işaretine ulaşıldığında yeni blok açılır.
+- İsteğe bağlı min-süre son-işlemiyle çok kısa bloklar uzatılır (taşma koruması ile).
 - Her blok `format_timestamp()` ile `HH:MM:SS,mmm` formatına dönüştürülür.
 
 ---

@@ -6,6 +6,9 @@ customtkinter>=5.2.2
 # Surukle-birak (drag & drop) destegi
 tkinterdnd2>=0.4.2
 
+# Windows bildirimleri (islem bitince toast)
+winotify>=1.1.0
+
 # Altyazi motoru (CUDA destekli)
 faster-whisper>=1.0.3
 

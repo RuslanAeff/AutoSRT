@@ -8,9 +8,11 @@ Mimari notlar:
 - Whisper işlemi ASLA ana GUI thread'inde çalışmaz -> threading.Thread ile arka plana alınır.
 - Thread <-> GUI iletişimi thread-safe bir queue.Queue üzerinden yapılır; arayüz bu kuyruğu
   after() ile periyodik boşaltır (Tkinter thread-safe değildir).
-- Çekirdek transcribe mantığı (DLL bulma, format_timestamp, max_chars=45 mikro-dilimleme) BİREBİR korundu.
+- Çekirdek transcribe mantığı (DLL bulma, format_timestamp, mikro-dilimleme) BİREBİR korundu;
+  varsayılan değerlerde (karakter sınırı=45, min süre=0, sadece-cümle kapalı) çıktı orijinalle aynıdır.
 - Konsol (CMD) penceresi açılmaz: pythonw ile çalıştırılır; python.exe ile başlatılırsa
-  kendi sahibi olduğu konsolu otomatik gizler (paylaşılan terminali gizlemez).
+  kendi sahibi olduğu konsolu otomatik gizler.
+- İşlem bitince Windows bildirimi gösterilir (tıklayınca çıktı klasörünü açar).
 """
 
 import os
@@ -87,27 +89,28 @@ VIDEO_EXTENSIONS = (
     ".mpg", ".mpeg", ".ts", ".mp3", ".wav", ".m4a", ".flac", ".aac", ".ogg",
 )
 
-# --- PALET (premium, sade koyu) ---
-BG          = "#0a0a0d"
-SIDEBAR     = "#0f0f14"
-SURFACE     = "#121218"
-SURFACE2    = "#17171f"
-HOVER       = "#1d1d27"
-BORDER      = "#242430"
-BORDER_SOFT = "#1b1b24"
-TEXT        = "#f3f4f6"
-MUTED       = "#71717f"
-FAINT       = "#45454f"
-GREEN       = "#22c55e"
-RED         = "#f43f5e"
-WARN        = "#f59e0b"
-TERM_BG     = "#0c0c10"
-TERM_TXT    = "#9af2bd"
+# --- PALET: her renk (açık, koyu) çifti; ctk appearance moduyla otomatik değişir ---
+BG          = ("#f4f5f7", "#0a0a0d")
+SIDEBAR     = ("#ffffff", "#0f0f14")
+SURFACE     = ("#ffffff", "#121218")
+SURFACE2    = ("#eceef2", "#17171f")
+HOVER       = ("#e2e5ea", "#1d1d27")
+BORDER      = ("#dde0e6", "#242430")
+BORDER_SOFT = ("#e7e9ee", "#1b1b24")
+TEXT        = ("#16181d", "#f3f4f6")
+MUTED       = ("#6b7280", "#71717f")
+FAINT       = ("#9aa1ad", "#45454f")
+
+GREEN = "#22c55e"
+RED   = "#f43f5e"
+WARN  = "#f59e0b"
+# Günlük paneli her iki modda da koyu kalır (gömülü terminal estetiği)
+TERM_BG  = "#0c0c10"
+TERM_TXT = "#9af2bd"
 
 FONT_UI   = "Segoe UI"
 FONT_MONO = "Consolas"
 
-# Vurgu renkleri (premium tonlar): isim -> (renk, hover)
 ACCENTS = {
     "indigo":  ("#6366f1", "#4f46e5"),
     "emerald": ("#10b981", "#059669"),
@@ -115,14 +118,16 @@ ACCENTS = {
     "rose":    ("#fb7185", "#f43f5e"),
 }
 
-# --- DIL METINLERI (TR / EN) ---
+# --- DİL METİNLERİ (TR / EN) ---
 L = {
     "tr": {
         "subtitle": "Yapay Zeka Destekli Altyazı Motoru",
-        "model": "MODEL", "language": "DİL", "theme": "TEMA",
+        "model": "MODEL", "language": "DİL", "theme": "TEMA", "appearance": "GÖRÜNÜM",
+        "sub_group": "ALTYAZI AYARLARI",
+        "char_limit": "Karakter sınırı", "min_dur": "Min. süre", "sec": "sn",
+        "sentence_only": "Cümle sonunda böl",
         "drop_title": "Videoyu buraya sürükleyip bırakın",
         "or": "veya", "browse": "Video Seç",
-        "no_file": "Henüz video seçilmedi",
         "start": "Altyazı Oluştur", "need_file": "Önce bir video seçin",
         "stop": "Durdur", "stopping": "Durduruluyor…",
         "open_folder": "Klasörü Aç", "log": "Günlük", "clear": "Temizle",
@@ -134,6 +139,8 @@ L = {
         "loading_model": "Model yükleniyor: {} ({}/{})",
         "first_use": "(İlk kullanımda model indirilebilir, lütfen bekleyin…)",
         "model_ready": "Model hazır.",
+        "settings_line": "Ayarlar → karakter sınırı: {}, min süre: {} sn, cümle sonu: {}",
+        "on": "açık", "off": "kapalı",
         "detected": "Algılanan dil: {} | Süre: {}",
         "done_blocks": "TAMAMLANDI! {} altyazı bloğu oluşturuldu.",
         "saved": "Kaydedildi: {}",
@@ -146,13 +153,16 @@ L = {
         "open_fail": "Klasör açılamadı: {}",
         "dev_gpu": "GPU hazır", "dev_cpu": "CPU modu", "dev_check": "Donanım denetleniyor…",
         "selected": "Seçilen video: {}",
+        "notify_title": "Altyazı hazır ✓", "notify_msg": "{} oluşturuldu — açmak için tıklayın",
     },
     "en": {
         "subtitle": "AI-Powered Subtitle Engine",
-        "model": "MODEL", "language": "LANGUAGE", "theme": "THEME",
+        "model": "MODEL", "language": "LANGUAGE", "theme": "THEME", "appearance": "APPEARANCE",
+        "sub_group": "SUBTITLE SETTINGS",
+        "char_limit": "Character limit", "min_dur": "Min. duration", "sec": "s",
+        "sentence_only": "Split at sentence end",
         "drop_title": "Drag & drop your video here",
         "or": "or", "browse": "Choose Video",
-        "no_file": "No video selected",
         "start": "Generate Subtitles", "need_file": "Select a video first",
         "stop": "Stop", "stopping": "Stopping…",
         "open_folder": "Open Folder", "log": "Log", "clear": "Clear",
@@ -164,6 +174,8 @@ L = {
         "loading_model": "Loading model: {} ({}/{})",
         "first_use": "(Model may download on first use, please wait…)",
         "model_ready": "Model ready.",
+        "settings_line": "Settings → char limit: {}, min duration: {} s, sentence-end: {}",
+        "on": "on", "off": "off",
         "detected": "Detected language: {} | Duration: {}",
         "done_blocks": "DONE! {} subtitle blocks created.",
         "saved": "Saved: {}",
@@ -176,6 +188,7 @@ L = {
         "open_fail": "Could not open folder: {}",
         "dev_gpu": "GPU ready", "dev_cpu": "CPU mode", "dev_check": "Checking hardware…",
         "selected": "Selected video: {}",
+        "notify_title": "Subtitles ready ✓", "notify_msg": "{} created — click to open",
     },
 }
 
@@ -225,8 +238,8 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
 
         ctk.set_appearance_mode("dark")
         self.title("AutoSRT")
-        self.geometry("1060x800")
-        self.minsize(940, 700)
+        self.geometry("1100x800")
+        self.minsize(960, 600)
         self.configure(fg_color=BG)
         self.grid_columnconfigure(0, weight=0)
         self.grid_columnconfigure(1, weight=1)
@@ -247,55 +260,73 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
 
     # ===================================================================== KENAR ÇUBUĞU
     def _build_sidebar(self):
-        sb = ctk.CTkFrame(self, width=248, corner_radius=0, fg_color=SIDEBAR)
+        # Kaydırılabilir kenar çubuğu: her ekran yüksekliği/DPI'da tüm kontroller erişilir
+        sb = ctk.CTkScrollableFrame(self, width=258, corner_radius=0, fg_color=SIDEBAR,
+                                    scrollbar_button_color=BORDER,
+                                    scrollbar_button_hover_color=MUTED)
         sb.grid(row=0, column=0, sticky="nsew")
-        sb.grid_propagate(False)
         sb.grid_columnconfigure(0, weight=1)
-        sb.grid_rowconfigure(6, weight=1)
+        r = 0
 
         # Marka
         brand = ctk.CTkFrame(sb, fg_color="transparent")
-        brand.grid(row=0, column=0, sticky="ew", padx=24, pady=(28, 4))
+        brand.grid(row=r, column=0, sticky="ew", padx=20, pady=(20, 2)); r += 1
         self.logo_dot = ctk.CTkLabel(brand, text="◆", font=ctk.CTkFont(FONT_UI, 22))
         self.logo_dot.pack(side="left", padx=(0, 10))
         ctk.CTkLabel(brand, text="AutoSRT",
                      font=ctk.CTkFont(FONT_UI, 22, weight="bold"),
                      text_color=TEXT).pack(side="left")
         self.brand_rule = ctk.CTkFrame(sb, height=2, corner_radius=2, fg_color=self.accent)
-        self.brand_rule.grid(row=1, column=0, sticky="ew", padx=24, pady=(2, 22))
+        self.brand_rule.grid(row=r, column=0, sticky="ew", padx=20, pady=(2, 16)); r += 1
 
         # MODEL
-        self.cap_model = self._caption(sb, 2, "model")
+        self.cap_model = self._caption(sb, r, "model"); r += 1
         self.model_var = ctk.StringVar(value=MODEL_SIZE)
         self.model_menu = ctk.CTkOptionMenu(
             sb, values=MODEL_SIZES, variable=self.model_var,
-            height=40, corner_radius=10, fg_color=SURFACE2, button_color=self.accent,
+            height=36, corner_radius=10, fg_color=SURFACE2, button_color=self.accent,
             button_hover_color=self.accent_hover, dropdown_fg_color=SURFACE2,
+            text_color=TEXT, dropdown_text_color=TEXT,
             font=ctk.CTkFont(FONT_UI, 13), dropdown_font=ctk.CTkFont(FONT_UI, 13))
-        self.model_menu.grid(row=3, column=0, sticky="ew", padx=24, pady=(2, 20))
+        self.model_menu.grid(row=r, column=0, sticky="ew", padx=20, pady=(2, 14)); r += 1
 
         # DİL
-        self.cap_lang = self._caption(sb, 4, "language")
+        self.cap_lang = self._caption(sb, r, "language"); r += 1
         lang_row = ctk.CTkFrame(sb, fg_color="transparent")
-        lang_row.grid(row=5, column=0, sticky="ew", padx=24, pady=(2, 4))
+        lang_row.grid(row=r, column=0, sticky="ew", padx=20, pady=(2, 14)); r += 1
         lang_row.grid_columnconfigure((0, 1), weight=1)
         self.lang_btns = {}
         for i, code in enumerate(("tr", "en")):
-            b = ctk.CTkButton(lang_row, text=code.upper(), height=36, corner_radius=10,
+            b = ctk.CTkButton(lang_row, text=code.upper(), height=34, corner_radius=10,
                               font=ctk.CTkFont(FONT_UI, 13, weight="bold"),
                               command=lambda c=code: self._set_lang(c))
-            b.grid(row=0, column=i, sticky="ew", padx=(0, 8) if i == 0 else (0, 0))
+            b.grid(row=0, column=i, sticky="ew", padx=(0, 8) if i == 0 else 0)
             self.lang_btns[code] = b
 
-        # Alt: TEMA + donanım + sürüm
-        bottom = ctk.CTkFrame(sb, fg_color="transparent")
-        bottom.grid(row=7, column=0, sticky="ew", padx=24, pady=(0, 24))
-        self.cap_theme = ctk.CTkLabel(bottom, text=self.t("theme"),
-                                      font=ctk.CTkFont(FONT_UI, 11, weight="bold"),
-                                      text_color=MUTED)
-        self.cap_theme.pack(anchor="w", pady=(0, 8))
-        sw = ctk.CTkFrame(bottom, fg_color="transparent")
-        sw.pack(anchor="w")
+        # ALTYAZI AYARLARI
+        self.cap_sub = self._caption(sb, r, "sub_group"); r += 1
+        self.char_cap, self.char_val, self.char_slider = self._slider_block(
+            sb, r, "char_limit", 20, 90, 70, 45, lambda v: str(int(float(v)))); r += 1
+        self.min_cap, self.min_val, self.min_slider = self._slider_block(
+            sb, r, "min_dur", 0.0, 2.0, 20, 0.0,
+            lambda v: f"{float(v):.1f} {self.t('sec')}"); r += 1
+        self.sentence_switch = ctk.CTkSwitch(
+            sb, text=self.t("sentence_only"), font=ctk.CTkFont(FONT_UI, 12),
+            text_color=TEXT)
+        self.sentence_switch.grid(row=r, column=0, sticky="w", padx=20, pady=(4, 14)); r += 1
+
+        # GÖRÜNÜM (açık/koyu)
+        self.cap_appear = self._caption(sb, r, "appearance"); r += 1
+        self.appear_seg = ctk.CTkSegmentedButton(
+            sb, values=["☾", "☀"], command=self._set_mode, height=32,
+            font=ctk.CTkFont(FONT_UI, 15))
+        self.appear_seg.set("☾")
+        self.appear_seg.grid(row=r, column=0, sticky="ew", padx=20, pady=(2, 14)); r += 1
+
+        # TEMA (vurgu rengi)
+        self.cap_theme = self._caption(sb, r, "theme"); r += 1
+        sw = ctk.CTkFrame(sb, fg_color="transparent")
+        sw.grid(row=r, column=0, sticky="w", padx=20, pady=(2, 14)); r += 1
         self.swatches = {}
         for name, (col, _) in ACCENTS.items():
             b = ctk.CTkButton(sw, text="", width=26, height=26, corner_radius=13,
@@ -304,23 +335,40 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
             b.pack(side="left", padx=(0, 10))
             self.swatches[name] = b
 
-        ctk.CTkFrame(bottom, height=1, fg_color=BORDER).pack(fill="x", pady=16)
-        dev = ctk.CTkFrame(bottom, fg_color="transparent")
-        dev.pack(anchor="w", fill="x")
+        ctk.CTkFrame(sb, height=1, fg_color=BORDER).grid(
+            row=r, column=0, sticky="ew", padx=20, pady=(2, 12)); r += 1
+        dev = ctk.CTkFrame(sb, fg_color="transparent")
+        dev.grid(row=r, column=0, sticky="ew", padx=20, pady=(0, 16)); r += 1
         self.dev_dot = ctk.CTkLabel(dev, text="●", text_color=MUTED,
                                     font=ctk.CTkFont(FONT_UI, 12))
         self.dev_dot.pack(side="left", padx=(0, 8))
         self.dev_lbl = ctk.CTkLabel(dev, text=self.t("dev_check"), text_color=MUTED,
                                     font=ctk.CTkFont(FONT_UI, 12))
         self.dev_lbl.pack(side="left")
-        ctk.CTkLabel(dev, text="v1.2", text_color=FAINT,
+        ctk.CTkLabel(dev, text="v1.3", text_color=FAINT,
                      font=ctk.CTkFont(FONT_UI, 11)).pack(side="right")
 
     def _caption(self, parent, row, key):
         lbl = ctk.CTkLabel(parent, text=self.t(key),
                            font=ctk.CTkFont(FONT_UI, 11, weight="bold"), text_color=MUTED)
-        lbl.grid(row=row, column=0, sticky="w", padx=24, pady=(0, 8))
+        lbl.grid(row=row, column=0, sticky="w", padx=20, pady=(0, 6))
         return lbl
+
+    def _slider_block(self, parent, row, cap_key, frm, to, steps, default, value_fmt):
+        f = ctk.CTkFrame(parent, fg_color="transparent")
+        f.grid(row=row, column=0, sticky="ew", padx=20, pady=(0, 8))
+        f.grid_columnconfigure(0, weight=1)
+        cap = ctk.CTkLabel(f, text=self.t(cap_key), font=ctk.CTkFont(FONT_UI, 12),
+                           text_color=MUTED)
+        cap.grid(row=0, column=0, sticky="w")
+        val = ctk.CTkLabel(f, text=value_fmt(default),
+                           font=ctk.CTkFont(FONT_UI, 12, weight="bold"))
+        val.grid(row=0, column=1, sticky="e")
+        sl = ctk.CTkSlider(f, from_=frm, to=to, number_of_steps=steps, height=16)
+        sl.set(default)
+        sl.configure(command=lambda v, vl=val, fn=value_fmt: vl.configure(text=fn(v)))
+        sl.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(6, 0))
+        return cap, val, sl
 
     # ===================================================================== ANA ALAN
     def _build_main(self):
@@ -329,7 +377,6 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         main.grid_columnconfigure(0, weight=1)
         main.grid_rowconfigure(6, weight=1)
 
-        # Başlık
         head = ctk.CTkFrame(main, fg_color="transparent")
         head.grid(row=0, column=0, sticky="ew", pady=(0, 22))
         ctk.CTkLabel(head, text="AutoSRT",
@@ -340,7 +387,7 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.subtitle_lbl.pack(anchor="w", pady=(2, 0))
 
         # Sürükle-bırak kartı
-        self.drop_frame = ctk.CTkFrame(main, height=210, corner_radius=18,
+        self.drop_frame = ctk.CTkFrame(main, height=200, corner_radius=18,
                                        border_width=2, border_color=BORDER_SOFT,
                                        fg_color=SURFACE)
         self.drop_frame.grid(row=1, column=0, sticky="ew")
@@ -348,12 +395,12 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.drop_frame.grid_columnconfigure(0, weight=1)
         self.drop_frame.grid_rowconfigure((0, 4), weight=1)
 
-        self.badge = ctk.CTkFrame(self.drop_frame, width=66, height=66, corner_radius=33,
+        self.badge = ctk.CTkFrame(self.drop_frame, width=64, height=64, corner_radius=32,
                                   fg_color=SURFACE2)
         self.badge.grid(row=1, column=0)
         self.badge.grid_propagate(False)
         self.drop_icon = ctk.CTkLabel(self.badge, text="↓",
-                                      font=ctk.CTkFont(FONT_UI, 30, weight="bold"))
+                                      font=ctk.CTkFont(FONT_UI, 28, weight="bold"))
         self.drop_icon.place(relx=0.5, rely=0.5, anchor="center")
 
         self.drop_title = ctk.CTkLabel(self.drop_frame, text=self.t("drop_title"),
@@ -408,8 +455,8 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.open_btn = ctk.CTkButton(actions, text=self.t("open_folder"), width=150,
                                       height=50, corner_radius=12, fg_color=SURFACE2,
                                       hover_color=HOVER, border_width=1, border_color=BORDER,
-                                      font=ctk.CTkFont(FONT_UI, 13), state="disabled",
-                                      command=self.open_output_folder)
+                                      text_color=TEXT, font=ctk.CTkFont(FONT_UI, 13),
+                                      state="disabled", command=self.open_output_folder)
         self.open_btn.grid(row=0, column=1)
 
         # İlerleme
@@ -453,8 +500,9 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
                                     text_color=MUTED)
         self.log_cap.grid(row=0, column=0, sticky="w")
         self.clear_btn = ctk.CTkButton(lhead, text=self.t("clear"), width=72, height=28,
-                                       corner_radius=8, fg_color=SURFACE2, hover_color=HOVER,
-                                       font=ctk.CTkFont(FONT_UI, 11), command=self._clear_log)
+                                       corner_radius=8, fg_color="#1a1a22", hover_color="#23232d",
+                                       text_color="#cbd5e1", font=ctk.CTkFont(FONT_UI, 11),
+                                       command=self._clear_log)
         self.clear_btn.grid(row=0, column=1, sticky="e")
         self.log_box = ctk.CTkTextbox(logc, corner_radius=10, fg_color=TERM_BG,
                                       text_color=TERM_TXT,
@@ -462,7 +510,7 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.log_box.grid(row=1, column=0, sticky="nsew", padx=16, pady=14)
         self.log_box.configure(state="disabled")
 
-    # ===================================================================== TEMA / DİL
+    # ===================================================================== TEMA / DİL / MOD
     def _set_accent(self, name):
         self._apply_accent(*ACCENTS[name])
 
@@ -475,11 +523,22 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.model_menu.configure(button_color=accent, button_hover_color=hover)
         self.progress.configure(progress_color=accent)
         self.percent_lbl.configure(text_color=accent)
+        self.char_val.configure(text_color=accent)
+        self.min_val.configure(text_color=accent)
+        self.char_slider.configure(button_color=accent, button_hover_color=hover,
+                                   progress_color=accent)
+        self.min_slider.configure(button_color=accent, button_hover_color=hover,
+                                  progress_color=accent)
+        self.sentence_switch.configure(progress_color=accent)
+        self.appear_seg.configure(selected_color=accent, selected_hover_color=hover)
         for name, (col, _) in ACCENTS.items():
             sel = (col == accent)
             self.swatches[name].configure(border_width=2 if sel else 0, border_color=TEXT)
         self._refresh_lang_buttons()
         self._update_primary()
+
+    def _set_mode(self, val):
+        ctk.set_appearance_mode("dark" if val == "☾" else "light")
 
     def _set_lang(self, code):
         self.lang = code
@@ -497,6 +556,13 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
     def _retext(self):
         self.cap_model.configure(text=self.t("model"))
         self.cap_lang.configure(text=self.t("language"))
+        self.cap_sub.configure(text=self.t("sub_group"))
+        self.char_cap.configure(text=self.t("char_limit"))
+        self.char_val.configure(text=str(int(self.char_slider.get())))
+        self.min_cap.configure(text=self.t("min_dur"))
+        self.min_val.configure(text=f"{self.min_slider.get():.1f} {self.t('sec')}")
+        self.sentence_switch.configure(text=self.t("sentence_only"))
+        self.cap_appear.configure(text=self.t("appearance"))
         self.cap_theme.configure(text=self.t("theme"))
         self.subtitle_lbl.configure(text=self.t("subtitle"))
         self.drop_title.configure(text=self.t("drop_title"))
@@ -505,8 +571,6 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.open_btn.configure(text=self.t("open_folder"))
         self.log_cap.configure(text=self.t("log"))
         self.clear_btn.configure(text=self.t("clear"))
-        if not self.video_path:
-            self.dev_lbl.configure()  # cihaz metni kendi guncellenir
         self._refresh_lang_buttons()
         self._render_status()
         if self._last_stats:
@@ -575,14 +639,21 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
             return
 
         srt_path = os.path.splitext(self.video_path)[0] + ".srt"
+        max_chars = int(self.char_slider.get())
+        min_dur = round(self.min_slider.get(), 1)
+        sentence_only = bool(self.sentence_switch.get())
+
         self.cancel_event.clear()
         self._set_busy(True)
         self.progress.set(0)
         self.percent_lbl.configure(text="0%")
         self._log("─" * 56)
         self._log(self.t("starting"))
+        self._log(self.t("settings_line", max_chars, f"{min_dur:.1f}",
+                         self.t("on") if sentence_only else self.t("off")))
         threading.Thread(target=self._transcription_worker,
-                         args=(self.video_path, srt_path, self.model_var.get()),
+                         args=(self.video_path, srt_path, self.model_var.get(),
+                               max_chars, min_dur, sentence_only),
                          daemon=True).start()
 
     def open_output_folder(self):
@@ -600,8 +671,26 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
             ok = False
         self.q(("device", ok))
 
+    def _notify(self, srt_path):
+        """İşlem bitince Windows bildirimi; tıklayınca çıktı klasörünü açar."""
+        def run():
+            try:
+                from winotify import Notification
+                folder = os.path.dirname(srt_path)
+                uri = "file:///" + folder.replace("\\", "/")
+                toast = Notification(app_id="AutoSRT",
+                                     title=self.t("notify_title"),
+                                     msg=self.t("notify_msg", os.path.basename(srt_path)),
+                                     duration="short", launch=uri)
+                toast.add_actions(label=self.t("open_folder"), launch=uri)
+                toast.show()
+            except Exception as e:
+                self.log_queue.put(("raw", f"\n[notify] {e}\n"))
+        threading.Thread(target=run, daemon=True).start()
+
     # ============================================= ARKA PLAN TRANSCRIBE (THREAD)
-    def _transcription_worker(self, video_path, srt_path, model_size):
+    def _transcription_worker(self, video_path, srt_path, model_size,
+                              max_chars, min_dur, sentence_only):
         try:
             from faster_whisper import WhisperModel
 
@@ -647,7 +736,10 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
             self.q(("progress", 0.0))
 
             t0 = time.time()
-            max_chars = 45  # --- MIKRO-DILIMLEME (BIREBIR KORUNDU) ---
+            # Hangi noktalama bölme tetikler? (sentence_only -> sadece cümle sonu)
+            punct = ('.', '?', '!') if sentence_only else ('.', ',', '?', '!', ':', ';')
+
+            blocks = []  # [start, end, text]
 
             def _tick(end_t):
                 if duration:
@@ -656,55 +748,59 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
                     eta = (el / frac - el) if frac > 0.01 else 0
                     self.q(("progress", frac))
                     self.q(("stats", {"el": el, "eta": eta,
-                                      "blocks": subtitle_index - 1, "lang": lang}))
+                                      "blocks": len(blocks), "lang": lang}))
+
+            # --- MİKRO-DİLİMLEME DÖNGÜSÜ (yapı BİREBİR; sınır/punkt parametreli) ---
+            for segment in segments:
+                if self.cancel_event.is_set():
+                    raise _Cancelled()
+                current_chunk_words = []
+                chunk_start = None
+
+                for word in segment.words:
+                    if chunk_start is None:
+                        chunk_start = word.start
+
+                    current_chunk_words.append(word)
+                    text_so_far = "".join([w.word for w in current_chunk_words]).strip()
+                    ends_with_punct = word.word.strip().endswith(punct)
+
+                    if len(text_so_far) >= max_chars or ends_with_punct:
+                        chunk_end = word.end
+                        blocks.append([chunk_start, chunk_end, text_so_far])
+                        self._log(f"[{format_timestamp(chunk_start)} - {format_timestamp(chunk_end)}] {text_so_far}")
+                        current_chunk_words = []
+                        chunk_start = None
+
+                if current_chunk_words:
+                    text_so_far = "".join([w.word for w in current_chunk_words]).strip()
+                    chunk_end = current_chunk_words[-1].end
+                    blocks.append([chunk_start, chunk_end, text_so_far])
+                    self._log(f"[{format_timestamp(chunk_start)} - {format_timestamp(chunk_end)}] {text_so_far}")
+
+                _tick(segment.end)
+            # --- DÖNGÜ SONU ---
+
+            # Okunabilirlik: çok kısa blokları en az min_dur kadar ekranda tut
+            # (sonraki bloğun başlangıcına taşmadan; yalnızca uzatır, kısaltmaz).
+            if min_dur > 0:
+                for i, b in enumerate(blocks):
+                    if b[1] - b[0] < min_dur:
+                        new_end = b[0] + min_dur
+                        if i + 1 < len(blocks):
+                            new_end = min(new_end, blocks[i + 1][0] - 0.05)
+                        if new_end > b[1]:
+                            b[1] = new_end
 
             with open(srt_path, "w", encoding="utf-8") as srt_file:
-                subtitle_index = 1
-
-                for segment in segments:
-                    if self.cancel_event.is_set():
-                        raise _Cancelled()
-                    current_chunk_words = []
-                    chunk_start = None
-
-                    for word in segment.words:
-                        if chunk_start is None:
-                            chunk_start = word.start
-
-                        current_chunk_words.append(word)
-                        text_so_far = "".join([w.word for w in current_chunk_words]).strip()
-                        ends_with_punct = word.word.strip().endswith(('.', ',', '?', '!', ':', ';'))
-
-                        if len(text_so_far) >= max_chars or ends_with_punct:
-                            chunk_end = word.end
-
-                            srt_file.write(f"{subtitle_index}\n")
-                            srt_file.write(f"{format_timestamp(chunk_start)} --> {format_timestamp(chunk_end)}\n")
-                            srt_file.write(f"{text_so_far}\n\n")
-
-                            self._log(f"[{format_timestamp(chunk_start)} - {format_timestamp(chunk_end)}] {text_so_far}")
-
-                            subtitle_index += 1
-                            current_chunk_words = []
-                            chunk_start = None
-
-                    if current_chunk_words:
-                        text_so_far = "".join([w.word for w in current_chunk_words]).strip()
-                        chunk_end = current_chunk_words[-1].end
-
-                        srt_file.write(f"{subtitle_index}\n")
-                        srt_file.write(f"{format_timestamp(chunk_start)} --> {format_timestamp(chunk_end)}\n")
-                        srt_file.write(f"{text_so_far}\n\n")
-
-                        self._log(f"[{format_timestamp(chunk_start)} - {format_timestamp(chunk_end)}] {text_so_far}")
-
-                        subtitle_index += 1
-
-                    _tick(segment.end)
+                for idx, (s, e, txt) in enumerate(blocks, 1):
+                    srt_file.write(f"{idx}\n")
+                    srt_file.write(f"{format_timestamp(s)} --> {format_timestamp(e)}\n")
+                    srt_file.write(f"{txt}\n\n")
 
             self.q(("progress", 1.0))
             self._log("─" * 56)
-            self._log("✓ " + self.t("done_blocks", subtitle_index - 1))
+            self._log("✓ " + self.t("done_blocks", len(blocks)))
             self._log(self.t("saved", srt_path))
             self.q(("done", srt_path))
 
@@ -748,6 +844,7 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
                     self._set_status("st_done", GREEN)
                     self.percent_lbl.configure(text="100%")
                     self._set_busy(False)
+                    self._notify(item[1])
                 elif kind == "cancelled":
                     self._set_status("st_stopped", WARN)
                     self._set_busy(False)
