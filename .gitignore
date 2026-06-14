@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Sanal ortam
+.venv/
+venv/
+env/
+ENV/
+
+# Model önbelleği (Hugging Face, ~GB boyutunda)
+.cache/
+models/
+
+# Test / geçici dosyalar
+_smoke*.py
+_engine_test.py
+_test_sample.*
+_shot.png
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Windows
+Thumbs.db
+desktop.ini

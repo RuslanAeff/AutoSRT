@@ -1,0 +1,16 @@
+# --- AutoSRT bagimliliklari ---
+
+# Arayuz (modern, koyu tema)
+customtkinter>=5.2.2
+
+# Surukle-birak (drag & drop) destegi
+tkinterdnd2>=0.4.2
+
+# Altyazi motoru (CUDA destekli)
+faster-whisper>=1.0.3
+
+# --- NVIDIA CUDA 12 calisma zamani DLL'leri ---
+# DLL otonom entegrasyonu bu paketlerin "nvidia/cublas/bin" ve
+# "nvidia/cudnn/bin" klasorlerini PATH'e ekler.
+nvidia-cublas-cu12
+nvidia-cudnn-cu12
