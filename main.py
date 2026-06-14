@@ -243,6 +243,7 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.geometry("1100x800")
         self.minsize(960, 600)
         self.configure(fg_color=BG)
+        self._set_window_icon()
         self.grid_columnconfigure(0, weight=0)
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
@@ -255,6 +256,24 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
 
         self.after(80, self._poll_log_queue)
         threading.Thread(target=self._detect_device, daemon=True).start()
+
+    def _set_window_icon(self):
+        """Pencere + gorev cubugu ikonunu icon.ico'dan ayarlar."""
+        try:
+            base = os.path.dirname(os.path.abspath(__file__))
+            ico = os.path.join(base, "icon.ico")
+            if os.path.exists(ico):
+                # Gorev cubugunda dogru gruplama + ikon icin AppUserModelID
+                try:
+                    import ctypes
+                    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("AutoSRT")
+                except Exception:
+                    pass
+                self.iconbitmap(ico)
+                # CTk bazen ikonu geciktirerek ezer; bir kez daha uygula.
+                self.after(300, lambda: self.iconbitmap(ico))
+        except Exception:
+            pass
 
     def t(self, key, *args):
         s = L[self.lang].get(key, key)
