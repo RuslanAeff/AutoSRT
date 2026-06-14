@@ -1,11 +1,20 @@
-# AutoSRT — Yapay Zeka Destekli Altyazı Motoru
+<p align="center">
+  <img src="icon.png" alt="AutoSRT" width="128" height="128">
+</p>
 
-> **AI-Powered Subtitle Engine** — Generate precise, micro-segmented `.srt` subtitle files from any video or audio using a local Whisper model on your NVIDIA GPU.
+<h1 align="center">AutoSRT</h1>
 
-![Python](https://img.shields.io/badge/Python-3.11%2B-blue?logo=python&logoColor=white)
-![faster-whisper](https://img.shields.io/badge/faster--whisper-1.2%2B-green)
-![CUDA](https://img.shields.io/badge/CUDA-12-76b900?logo=nvidia&logoColor=white)
-![License](https://img.shields.io/badge/License-MIT-purple)
+<p align="center">
+  <b>Yapay Zeka Destekli Altyazı Motoru</b><br>
+  <i>AI-Powered Subtitle Engine</i> — Generate precise, micro-segmented <code>.srt</code> subtitle files from any video or audio using a local Whisper model on your NVIDIA GPU.
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.11%2B-blue?logo=python&logoColor=white" alt="Python">
+  <img src="https://img.shields.io/badge/faster--whisper-1.2%2B-green" alt="faster-whisper">
+  <img src="https://img.shields.io/badge/CUDA-12-76b900?logo=nvidia&logoColor=white" alt="CUDA">
+  <img src="https://img.shields.io/badge/License-MIT-purple" alt="License">
+</p>
 
 ---
 
