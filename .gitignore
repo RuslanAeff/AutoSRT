@@ -30,6 +30,10 @@ _shot.png
 .idea/
 *.swp
 
+# Claude Code yerel proje notlari (GitHub'a gitmesin)
+CLAUDE.md
+.claude/
+
 # Windows
 Thumbs.db
 desktop.ini

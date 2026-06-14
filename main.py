@@ -23,6 +23,7 @@ import re
 import time
 import queue
 import threading
+import gc
 
 
 # --- KONSOL (CMD) PENCERESINI GIZLE ---------------------------------------
@@ -709,6 +710,14 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
             self.q(("progress", None))
             key = (model_size, device, compute)
             if self.model is None or self._model_key != key:
+                # VRAM tahliye protokolu: yeni modeli yuklemeden ONCE eskisini
+                # bellekten bosalt. Aksi halde dusuk VRAM'li GPU'larda (6 GB)
+                # eski + yeni model bir an icin ayni anda bellekte olur -> OOM.
+                if self.model is not None:
+                    del self.model
+                    self.model = None
+                    self._model_key = None
+                    gc.collect()
                 self._log(self.t("loading_model", model_size, device, compute))
                 self._log(self.t("first_use"))
                 self.model = WhisperModel(model_size, device=device, compute_type=compute)
