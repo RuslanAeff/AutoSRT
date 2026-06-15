@@ -649,11 +649,14 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
             w.dnd_bind("<<DropEnter>>", self._on_drag_enter)
             w.dnd_bind("<<DropLeave>>", self._on_drag_leave)
 
-        # Dosya sırası (kuyruk)
+        # Dosya sırası (kuyruk) — kart yüksekliği grid_propagate(False) ile sabitlenir,
+        # böylece tek/az dosyada şişmez ve artan boşluk Günlük paneline kalır.
         self.files_card = ctk.CTkFrame(main, fg_color=SURFACE2, corner_radius=12,
-                                       border_width=1, border_color=BORDER)
+                                       border_width=1, border_color=BORDER, height=96)
         self.files_card.grid(row=2, column=0, sticky="ew", pady=(14, 0))
         self.files_card.grid_columnconfigure(0, weight=1)
+        self.files_card.grid_rowconfigure(1, weight=1)
+        self.files_card.grid_propagate(False)
         fhead = ctk.CTkFrame(self.files_card, fg_color="transparent")
         fhead.grid(row=0, column=0, sticky="ew", padx=14, pady=(10, 4))
         fhead.grid_columnconfigure(0, weight=1)
@@ -672,7 +675,7 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
                                                  fg_color="transparent",
                                                  scrollbar_button_color=BORDER,
                                                  scrollbar_button_hover_color=MUTED)
-        self.files_list.grid(row=1, column=0, sticky="ew", padx=8, pady=(0, 10))
+        self.files_list.grid(row=1, column=0, sticky="nsew", padx=8, pady=(0, 10))
         self.files_list.grid_columnconfigure(0, weight=1)
         self.files_card.grid_remove()
 
@@ -935,13 +938,11 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         if not n:
             self.files_card.grid_remove()
             return
+        # Kart yüksekliği dosya sayısına göre uyarlanır (en çok 3 satır, sonrası kaydırma)
+        rows = max(1, min(n, 3))
+        self.files_card.configure(height=42 + rows * 46 + 12)
         self.files_card.grid()
         self.files_count.configure(text=self.t("files_n", n))
-        # Liste yüksekliği dosya sayısına göre uyarlanır (en çok 3 satır, sonrası kaydırma)
-        try:
-            self.files_list.configure(height=max(1, min(n, 3)) * 40 + 4)
-        except Exception:
-            pass
         for i, path in enumerate(self.files):
             row = ctk.CTkFrame(self.files_list, fg_color=SURFACE, corner_radius=8)
             row.grid(row=i, column=0, sticky="ew", padx=2, pady=3)
