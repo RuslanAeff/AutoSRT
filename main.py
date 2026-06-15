@@ -170,10 +170,10 @@ MODEL_SIZES = ["large-v3", "large-v2", "medium", "small", "base", "tiny"]
 
 # Kaynak dil seçenekleri (yerel ad, whisper kodu); "Otomatik" ayrıca eklenir
 NATIVE_LANGS = [
-    ("Türkçe", "tr"), ("English", "en"), ("Deutsch", "de"), ("Español", "es"),
-    ("Français", "fr"), ("Italiano", "it"), ("Русский", "ru"), ("Português", "pt"),
-    ("العربية", "ar"), ("中文", "zh"), ("日本語", "ja"), ("한국어", "ko"),
-    ("Nederlands", "nl"), ("Polski", "pl"), ("Українська", "uk"),
+    ("Türkçe", "tr"), ("Azərbaycan", "az"), ("English", "en"), ("Deutsch", "de"),
+    ("Español", "es"), ("Français", "fr"), ("Italiano", "it"), ("Русский", "ru"),
+    ("Português", "pt"), ("العربية", "ar"), ("中文", "zh"), ("日本語", "ja"),
+    ("한국어", "ko"), ("Nederlands", "nl"), ("Polski", "pl"), ("Українська", "uk"),
 ]
 
 VIDEO_EXTENSIONS = (
@@ -600,9 +600,9 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
     # ===================================================================== ANA ALAN
     def _build_main(self):
         main = ctk.CTkFrame(self, fg_color="transparent")
-        main.grid(row=0, column=1, sticky="nsew", padx=36, pady=32)
+        main.grid(row=0, column=1, sticky="nsew", padx=36, pady=24)
         main.grid_columnconfigure(0, weight=1)
-        main.grid_rowconfigure(6, weight=1)
+        main.grid_rowconfigure(6, weight=1, minsize=150)
 
         head = ctk.CTkFrame(main, fg_color="transparent")
         head.grid(row=0, column=0, sticky="ew", pady=(0, 20))
@@ -614,7 +614,7 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.subtitle_lbl.pack(anchor="w", pady=(2, 0))
 
         # Sürükle-bırak kartı
-        self.drop_frame = ctk.CTkFrame(main, height=176, corner_radius=18,
+        self.drop_frame = ctk.CTkFrame(main, height=158, corner_radius=18,
                                        border_width=2, border_color=BORDER_SOFT,
                                        fg_color=SURFACE)
         self.drop_frame.grid(row=1, column=0, sticky="ew")
@@ -668,7 +668,7 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
                                            font=ctk.CTkFont(FONT_UI, 11),
                                            command=self._clear_files)
         self.clear_all_btn.grid(row=0, column=1, sticky="e")
-        self.files_list = ctk.CTkScrollableFrame(self.files_card, height=104,
+        self.files_list = ctk.CTkScrollableFrame(self.files_card, height=46,
                                                  fg_color="transparent",
                                                  scrollbar_button_color=BORDER,
                                                  scrollbar_button_hover_color=MUTED)
@@ -915,14 +915,33 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self._render_files()
         self._update_primary()
 
+    def _move_file(self, path, delta):
+        """Sıradaki dosyayı bir kademe yukarı (-1) / aşağı (+1) taşır."""
+        if self.is_running:
+            return
+        try:
+            i = self.files.index(path)
+        except ValueError:
+            return
+        j = i + delta
+        if 0 <= j < len(self.files):
+            self.files[i], self.files[j] = self.files[j], self.files[i]
+            self._render_files()
+
     def _render_files(self):
         for w in self.files_list.winfo_children():
             w.destroy()
-        if not self.files:
+        n = len(self.files)
+        if not n:
             self.files_card.grid_remove()
             return
         self.files_card.grid()
-        self.files_count.configure(text=self.t("files_n", len(self.files)))
+        self.files_count.configure(text=self.t("files_n", n))
+        # Liste yüksekliği dosya sayısına göre uyarlanır (en çok 3 satır, sonrası kaydırma)
+        try:
+            self.files_list.configure(height=max(1, min(n, 3)) * 40 + 4)
+        except Exception:
+            pass
         for i, path in enumerate(self.files):
             row = ctk.CTkFrame(self.files_list, fg_color=SURFACE, corner_radius=8)
             row.grid(row=i, column=0, sticky="ew", padx=2, pady=3)
@@ -932,11 +951,25 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
             ctk.CTkLabel(row, text=os.path.basename(path), anchor="w",
                          font=ctk.CTkFont(FONT_UI, 12), text_color=TEXT).grid(
                 row=0, column=1, sticky="w")
-            ctk.CTkButton(row, text="✕", width=28, height=28, corner_radius=6,
+            up = ctk.CTkButton(row, text="▲", width=26, height=26, corner_radius=6,
+                               fg_color="transparent", hover_color=HOVER, text_color=MUTED,
+                               font=ctk.CTkFont(FONT_UI, 11),
+                               command=lambda p=path: self._move_file(p, -1))
+            up.grid(row=0, column=2, padx=(2, 0))
+            if i == 0:
+                up.configure(state="disabled")
+            down = ctk.CTkButton(row, text="▼", width=26, height=26, corner_radius=6,
+                                 fg_color="transparent", hover_color=HOVER, text_color=MUTED,
+                                 font=ctk.CTkFont(FONT_UI, 11),
+                                 command=lambda p=path: self._move_file(p, 1))
+            down.grid(row=0, column=3, padx=(2, 0))
+            if i == n - 1:
+                down.configure(state="disabled")
+            ctk.CTkButton(row, text="✕", width=28, height=26, corner_radius=6,
                           fg_color="transparent", hover_color=HOVER, text_color=MUTED,
                           font=ctk.CTkFont(FONT_UI, 12),
                           command=lambda p=path: self._remove_file(p)).grid(
-                row=0, column=2, padx=(4, 8))
+                row=0, column=4, padx=(2, 8))
 
     # ===================================================================== BAŞLAT / DURDUR
     def _on_primary(self):
