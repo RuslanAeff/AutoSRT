@@ -162,6 +162,17 @@ def parse_srt(text):
     return blocks
 
 
+def _sanitize_blocks(blocks):
+    """Diske yazmadan önce SRT bütünlüğü güvencesi (özellikle elle düzenleme sonrası):
+    başlangıca göre sırala, sıfır/negatif süreli blokları at, örtüşmeyi (overlap) kırp."""
+    clean = [[s, e, t] for (s, e, t) in blocks if e > s]
+    clean.sort(key=lambda b: b[0])
+    for i in range(len(clean) - 1):
+        if clean[i][1] > clean[i + 1][0]:
+            clean[i][1] = max(clean[i][0] + 0.001, clean[i + 1][0] - 0.001)
+    return clean
+
+
 # --- MODEL KONFIGURASYONU (BIREBIR KORUNDU) ---
 MODEL_SIZE = "large-v3"
 DEVICE = "cuda"
@@ -260,6 +271,9 @@ L = {
         "notify_title": "Altyazı hazır ✓", "notify_msg": "{} oluşturuldu — açmak için tıklayın",
         "editor_title": "Altyazıyı düzenle — {}",
         "editor_hint": "Metni ve zamanlamayı düzenleyebilirsiniz (SRT biçimi). Kaydedince seçili biçimlere yazılır.",
+        "editor_empty": "Geçerli altyazı bulunamadı — SRT biçimini kontrol edin.",
+        "editor_mismatch": "{} blok bekleniyordu, {} bulundu (bazıları okunamadı). Yine de kaydet?",
+        "save_anyway": "Yine de Kaydet",
         "save": "Kaydet", "cancel": "İptal",
     },
     "en": {
@@ -309,6 +323,9 @@ L = {
         "notify_title": "Subtitles ready ✓", "notify_msg": "{} created — click to open",
         "editor_title": "Edit subtitles — {}",
         "editor_hint": "Edit text and timing (SRT format). On save, written to selected formats.",
+        "editor_empty": "No valid subtitles found — check the SRT format.",
+        "editor_mismatch": "Expected {} blocks, found {} (some unreadable). Save anyway?",
+        "save_anyway": "Save anyway",
         "save": "Save", "cancel": "Cancel",
     },
 }
@@ -348,6 +365,7 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.cancel_event = threading.Event()
         self.last_srt = None
         self.out_dir = None             # None -> kaynağın yanı
+        self._active_editor = None      # açık düzenleyiciyi dışarıdan iptal etmek için
         self._cur_src_code = None       # None -> otomatik algıla
         self.lang = "tr"
         self.accent, self.accent_hover = ACCENTS["indigo"]
@@ -1088,18 +1106,27 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
 
                 blocks = self._transcribe_one(path, opts, fi, total)
 
-                # Önizleme/düzenleme (toggle açıksa): worker burada GUI'yi bekler
+                # Önizleme/düzenleme (toggle açıksa): worker burada GUI'yi bekler.
+                # ev.wait() timeout'lu döngüde; kullanıcı "Durdur"a basarsa düzenleyici
+                # kapatılır ve worker kilitlenmeden serbest kalır (deadlock önlemi).
                 if opts["preview"]:
                     self.q(("status", "st_editing", WARN))
                     ev = threading.Event()
                     result = {"blocks": None, "cancel": False}
                     self.q(("preview", {"name": os.path.basename(path),
                                         "blocks": blocks, "event": ev, "result": result}))
-                    ev.wait()
+                    while not ev.wait(timeout=0.4):
+                        if self.cancel_event.is_set():
+                            self.q(("close_editor", None))
+                            ev.wait()
+                            break
                     if result["cancel"]:
                         raise _Cancelled()
                     if result["blocks"] is not None:
                         blocks = result["blocks"]
+
+                # SRT bütünlüğü güvencesi: sırala, geçersiz süreyi at, overlap'i kırp
+                blocks = _sanitize_blocks(blocks)
 
                 # Kaydet (seçili biçimler -> hedef klasör)
                 out_dir = opts["out_dir"] or os.path.dirname(path)
@@ -1214,10 +1241,12 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         ev = payload["event"]
         result = payload["result"]
         blocks = payload["blocks"]
+        orig_n = len(blocks)
+        forced = {"on": False}
         try:
             win = ctk.CTkToplevel(self)
             win.title(self.t("editor_title", payload["name"]))
-            win.geometry("780x620")
+            win.geometry("780x640")
             win.configure(fg_color=BG)
             win.transient(self)
             win.grid_columnconfigure(0, weight=1)
@@ -1232,39 +1261,69 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
             box = ctk.CTkTextbox(win, corner_radius=12, fg_color=TERM_BG,
                                  text_color=TEXT, font=ctk.CTkFont(FONT_MONO, 13),
                                  wrap="word", border_width=1, border_color=BORDER_SOFT)
-            box.grid(row=1, column=0, sticky="nsew", padx=20, pady=(0, 12))
+            box.grid(row=1, column=0, sticky="nsew", padx=20, pady=(0, 8))
             box.insert("1.0", blocks_to_srt_text(blocks))
 
+            warn_lbl = ctk.CTkLabel(win, text="", text_color=RED,
+                                    font=ctk.CTkFont(FONT_UI, 12, weight="bold"),
+                                    anchor="w", wraplength=720, justify="left")
+            warn_lbl.grid(row=2, column=0, sticky="ew", padx=20, pady=(0, 4))
+            warn_lbl.grid_remove()
+
             bar = ctk.CTkFrame(win, fg_color="transparent")
-            bar.grid(row=2, column=0, sticky="ew", padx=20, pady=(0, 18))
+            bar.grid(row=3, column=0, sticky="ew", padx=20, pady=(4, 18))
             bar.grid_columnconfigure(0, weight=1)
 
-            def do_save():
-                parsed = parse_srt(box.get("1.0", "end"))
-                result["blocks"] = parsed if parsed else blocks
+            def finalize(parsed, cancel):
+                self._active_editor = None
+                result["blocks"] = parsed
+                result["cancel"] = cancel
                 ev.set()
-                win.destroy()
+                try:
+                    win.destroy()
+                except Exception:
+                    pass
+
+            def do_save():
+                # B) Doğrulama: kayıttan önce metni parse et, blok sayısını kıyasla.
+                parsed = parse_srt(box.get("1.0", "end"))
+                if not parsed:
+                    warn_lbl.configure(text=self.t("editor_empty"))
+                    warn_lbl.grid()
+                    return
+                if len(parsed) != orig_n and not forced["on"]:
+                    warn_lbl.configure(text=self.t("editor_mismatch", orig_n, len(parsed)))
+                    warn_lbl.grid()
+                    forced["on"] = True
+                    save_btn.configure(text=self.t("save_anyway"), fg_color=WARN,
+                                       hover_color="#b45309")
+                    return
+                finalize(parsed, False)
 
             def do_cancel():
-                result["cancel"] = True
-                ev.set()
-                win.destroy()
+                finalize(None, True)
 
             ctk.CTkButton(bar, text=self.t("cancel"), width=120, height=42, corner_radius=10,
                           fg_color=SURFACE2, hover_color=HOVER, text_color=TEXT,
                           border_width=1, border_color=BORDER,
                           font=ctk.CTkFont(FONT_UI, 13), command=do_cancel).grid(
                 row=0, column=1, padx=(0, 10))
-            ctk.CTkButton(bar, text=self.t("save"), width=160, height=42, corner_radius=10,
-                          fg_color=self.accent, hover_color=self.accent_hover,
-                          text_color="#ffffff", font=ctk.CTkFont(FONT_UI, 14, weight="bold"),
-                          command=do_save).grid(row=0, column=2)
+            save_btn = ctk.CTkButton(bar, text=self.t("save"), width=170, height=42,
+                                     corner_radius=10, fg_color=self.accent,
+                                     hover_color=self.accent_hover, text_color="#ffffff",
+                                     font=ctk.CTkFont(FONT_UI, 14, weight="bold"),
+                                     command=do_save)
+            save_btn.grid(row=0, column=2)
 
+            # A) Pencere X ile kapatılırsa da iptal akışı çalışır (deadlock önlemi).
             win.protocol("WM_DELETE_WINDOW", do_cancel)
+            # "Durdur" sırasında worker'ın bu düzenleyiciyi dışarıdan kapatabilmesi için:
+            self._active_editor = do_cancel
             win.after(120, lambda: (win.lift(), win.focus_force(), self._grab(win)))
         except Exception as e:
             # Düzenleyici açılamazsa worker'ı serbest bırak; orijinal bloklar kullanılır.
             self.log_queue.put(("raw", f"\n[editor] {e}\n"))
+            self._active_editor = None
             result["blocks"] = None
             ev.set()
 
@@ -1303,6 +1362,9 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
                     self._set_device(item[1])
                 elif kind == "preview":
                     self._open_editor(item[1])
+                elif kind == "close_editor":
+                    if self._active_editor is not None:
+                        self._active_editor()
                 elif kind == "done":
                     self.last_srt = item[1]
                     if item[1]:
