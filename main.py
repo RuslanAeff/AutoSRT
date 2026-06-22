@@ -192,6 +192,13 @@ VIDEO_EXTENSIONS = (
     ".mpg", ".mpeg", ".ts", ".mp3", ".wav", ".m4a", ".flac", ".aac", ".ogg",
 )
 
+# Bu uzantılar kuyruğa eklenmez; doğrudan yerleşik düzenleyicide açılır.
+SUBTITLE_EXTENSIONS = (".srt", ".vtt")
+
+# İşlem sonrası eylemler (ayar anahtarı sırası)
+POST_ACTIONS = ("none", "quit", "sleep", "shutdown")
+SPEED_PROFILES = ("fast", "balanced")
+
 # --- PALET: her renk (açık, koyu) çifti; ctk appearance moduyla otomatik değişir ---
 BG          = ("#f4f5f7", "#0a0a0d")
 SIDEBAR     = ("#ffffff", "#0f0f14")
@@ -255,10 +262,10 @@ L = {
         "on": "açık", "off": "kapalı",
         "detected": "Algılanan dil: {} | Süre: {}",
         "file_progress": "Dosya {}/{}",
-        "done_blocks": "{} altyazı bloğu oluşturuldu.",
-        "batch_done": "TAMAMLANDI! {} dosya işlendi.",
+        "done_blocks": "✓ {} altyazı bloğu oluşturuldu.",
+        "batch_done": "✓ TAMAMLANDI! {} dosya işlendi.",
         "saved": "Kaydedildi: {}",
-        "cancelled": "İşlem kullanıcı tarafından durduruldu.",
+        "cancelled": "■ İşlem kullanıcı tarafından durduruldu.",
         "err_no_file": "HATA: Önce bir dosya ekleyin veya sürükleyin.",
         "no_format": "HATA: En az bir çıktı biçimi seçin.",
         "cpu_fb": "UYARI: CUDA cihazı bulunamadı → CPU/int8 moduna geçildi.",
@@ -275,6 +282,19 @@ L = {
         "editor_mismatch": "{} blok bekleniyordu, {} bulundu (bazıları okunamadı). Yine de kaydet?",
         "save_anyway": "Yine de Kaydet",
         "save": "Kaydet", "cancel": "İptal",
+        "speed_profile": "HIZ PROFİLİ", "speed_fast": "Hızlı", "speed_balanced": "Dengeli",
+        "vad_sens": "Ses hassasiyeti",
+        "post_action": "İŞLEM SONRASI",
+        "post_none": "Hiçbir şey yapma", "post_quit": "Uygulamayı kapat",
+        "post_sleep": "Bilgisayarı uyut", "post_shutdown": "Bilgisayarı kapat",
+        "post_sleep_msg": "Tüm işler bitti → bilgisayar uyku moduna alınıyor…",
+        "post_shutdown_msg": "Tüm işler bitti → bilgisayar 30 sn içinde kapanacak (iptal: shutdown /a)",
+        "log_export": "Dışa Aktar", "log_saved": "Günlük kaydedildi: {}", "log_empty": "Günlük boş.",
+        "file_log": "Dosya {}/{}  •  {}",
+        "editor_file_hint": "Metni ve zamanlamayı düzenleyin (SRT). Kaydedince dosyanın üzerine yazılır.",
+        "editor_file_saved": "Altyazı kaydedildi: {}",
+        "editor_file_err": "Altyazı dosyası açılamadı: {}",
+        "sub_loaded": "Altyazı düzenleyicide açıldı: {}",
     },
     "en": {
         "subtitle": "AI-Powered Subtitle Engine",
@@ -307,10 +327,10 @@ L = {
         "on": "on", "off": "off",
         "detected": "Detected language: {} | Duration: {}",
         "file_progress": "File {}/{}",
-        "done_blocks": "{} subtitle blocks created.",
-        "batch_done": "DONE! {} files processed.",
+        "done_blocks": "✓ {} subtitle blocks created.",
+        "batch_done": "✓ DONE! {} files processed.",
         "saved": "Saved: {}",
-        "cancelled": "Stopped by the user.",
+        "cancelled": "■ Stopped by the user.",
         "err_no_file": "ERROR: Add or drop a file first.",
         "no_format": "ERROR: Select at least one output format.",
         "cpu_fb": "WARNING: No CUDA device found → switched to CPU/int8.",
@@ -327,6 +347,19 @@ L = {
         "editor_mismatch": "Expected {} blocks, found {} (some unreadable). Save anyway?",
         "save_anyway": "Save anyway",
         "save": "Save", "cancel": "Cancel",
+        "speed_profile": "SPEED PROFILE", "speed_fast": "Fast", "speed_balanced": "Balanced",
+        "vad_sens": "Voice sensitivity",
+        "post_action": "AFTER PROCESSING",
+        "post_none": "Do nothing", "post_quit": "Quit app",
+        "post_sleep": "Sleep PC", "post_shutdown": "Shut down PC",
+        "post_sleep_msg": "All jobs done → putting the PC to sleep…",
+        "post_shutdown_msg": "All jobs done → PC will shut down in 30 s (cancel: shutdown /a)",
+        "log_export": "Export", "log_saved": "Log saved: {}", "log_empty": "Log is empty.",
+        "file_log": "File {}/{}  •  {}",
+        "editor_file_hint": "Edit text and timing (SRT). On save, the file is overwritten.",
+        "editor_file_saved": "Subtitle saved: {}",
+        "editor_file_err": "Could not open subtitle file: {}",
+        "sub_loaded": "Subtitle opened in the editor: {}",
     },
 }
 
@@ -368,11 +401,15 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self._active_editor = None      # açık düzenleyiciyi dışarıdan iptal etmek için
         self._cur_src_code = None       # None -> otomatik algıla
         self.lang = "tr"
+        self._accent_name = "indigo"
         self.accent, self.accent_hover = ACCENTS["indigo"]
         self._pb_mode = None
         self._status_key = "st_ready"
         self._status_color = GREEN
         self._last_stats = None
+        self._speed = "balanced"          # hız profili: fast | balanced
+        self._post_action = "none"        # işlem sonrası: none|quit|sleep|shutdown
+        self._log_entries = []            # dil değişiminde yeniden çizim için yapısal log
 
         sys.stdout = _LogStream(self.log_queue)
         sys.stderr = _LogStream(self.log_queue)
@@ -390,9 +427,11 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self._build_sidebar()
         self._build_main()
         self._apply_accent(*ACCENTS["indigo"])
-        self._log_key("ready_msg")
+        self._load_settings()           # kayıtlı tercihleri uygula (varsa)
+        self._logt("ready_msg")
         self._update_primary()
 
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.after(80, self._poll_log_queue)
         threading.Thread(target=self._detect_device, daemon=True).start()
 
@@ -469,6 +508,14 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.src_menu.grid(row=r, column=0, sticky="ew", padx=20, pady=(2, 14)); r += 1
         self._rebuild_src_menu()
 
+        # HIZ PROFİLİ (Hızlı = beam 5, Dengeli = beam 10 / varsayılan)
+        self.cap_speed = self._caption(sb, r, "speed_profile"); r += 1
+        self.speed_seg = ctk.CTkSegmentedButton(
+            sb, values=[self.t("speed_fast"), self.t("speed_balanced")],
+            command=self._on_speed, height=34, font=ctk.CTkFont(FONT_UI, 12))
+        self.speed_seg.grid(row=r, column=0, sticky="ew", padx=20, pady=(2, 14)); r += 1
+        self._rebuild_speed_seg()
+
         # ALTYAZI AYARLARI
         self.cap_sub = self._caption(sb, r, "sub_group"); r += 1
         self.char_cap, self.char_val, self.char_slider = self._slider_block(
@@ -476,6 +523,8 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.min_cap, self.min_val, self.min_slider = self._slider_block(
             sb, r, "min_dur", 0.0, 2.0, 20, 0.0,
             lambda v: f"{float(v):.1f} {self.t('sec')}"); r += 1
+        self.vad_cap, self.vad_val, self.vad_slider = self._slider_block(
+            sb, r, "vad_sens", 0, 100, 20, 50, lambda v: str(int(float(v)))); r += 1
         self.sentence_switch = ctk.CTkSwitch(
             sb, text=self.t("sentence_only"), font=ctk.CTkFont(FONT_UI, 12),
             text_color=TEXT)
@@ -520,6 +569,18 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
                                     font=ctk.CTkFont(FONT_UI, 11), anchor="w",
                                     wraplength=210, justify="left")
         self.out_lbl.grid(row=r, column=0, sticky="ew", padx=20, pady=(0, 14)); r += 1
+
+        # İŞLEM SONRASI (batch bitince: kapat / uyut / kapan)
+        self.cap_post = self._caption(sb, r, "post_action"); r += 1
+        self.post_var = ctk.StringVar(value=self.t("post_none"))
+        self.post_menu = ctk.CTkOptionMenu(
+            sb, values=[self.t("post_none")], variable=self.post_var,
+            command=self._on_post, height=36, corner_radius=10, fg_color=SURFACE2,
+            button_color=self.accent, button_hover_color=self.accent_hover,
+            dropdown_fg_color=SURFACE2, text_color=TEXT, dropdown_text_color=TEXT,
+            font=ctk.CTkFont(FONT_UI, 13), dropdown_font=ctk.CTkFont(FONT_UI, 13))
+        self.post_menu.grid(row=r, column=0, sticky="ew", padx=20, pady=(2, 14)); r += 1
+        self._rebuild_post_menu()
 
         # TERİM İPUCU
         self.cap_term = self._caption(sb, r, "term_hint"); r += 1
@@ -614,6 +675,26 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
 
     def _on_src_select(self, value):
         self._cur_src_code = self._src_codes.get(value)
+
+    def _rebuild_speed_seg(self):
+        """Hız profili segmentini kurar; etiketler arayüz diline göre güncellenir."""
+        fast, bal = self.t("speed_fast"), self.t("speed_balanced")
+        self._speed_labels = {fast: "fast", bal: "balanced"}
+        self.speed_seg.configure(values=[fast, bal])
+        self.speed_seg.set(fast if self._speed == "fast" else bal)
+
+    def _on_speed(self, value):
+        self._speed = self._speed_labels.get(value, "balanced")
+
+    def _rebuild_post_menu(self):
+        """İşlem sonrası menüsünü kurar; etiketler arayüz diline göre güncellenir."""
+        labels = [self.t("post_" + k) for k in POST_ACTIONS]
+        self._post_labels = {self.t("post_" + k): k for k in POST_ACTIONS}
+        self.post_menu.configure(values=labels)
+        self.post_var.set(self.t("post_" + self._post_action))
+
+    def _on_post(self, value):
+        self._post_action = self._post_labels.get(value, "none")
 
     # ===================================================================== ANA ALAN
     def _build_main(self):
@@ -754,11 +835,16 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
                                     font=ctk.CTkFont(FONT_UI, 12, weight="bold"),
                                     text_color=MUTED)
         self.log_cap.grid(row=0, column=0, sticky="w")
+        self.export_btn = ctk.CTkButton(lhead, text=self.t("log_export"), width=96, height=28,
+                                        corner_radius=8, fg_color=TERM_PANEL, hover_color=HOVER,
+                                        text_color=TEXT, border_width=1, border_color=BORDER,
+                                        font=ctk.CTkFont(FONT_UI, 11), command=self._export_log)
+        self.export_btn.grid(row=0, column=1, sticky="e", padx=(0, 8))
         self.clear_btn = ctk.CTkButton(lhead, text=self.t("clear"), width=72, height=28,
                                        corner_radius=8, fg_color=TERM_PANEL, hover_color=HOVER,
                                        text_color=TEXT, border_width=1, border_color=BORDER,
                                        font=ctk.CTkFont(FONT_UI, 11), command=self._clear_log)
-        self.clear_btn.grid(row=0, column=1, sticky="e")
+        self.clear_btn.grid(row=0, column=2, sticky="e")
         self.log_box = ctk.CTkTextbox(logc, corner_radius=10, fg_color=TERM_BG,
                                       text_color=TERM_TXT,
                                       font=ctk.CTkFont(FONT_MONO, 13), wrap="word")
@@ -767,6 +853,7 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
 
     # ===================================================================== TEMA / DİL / MOD
     def _set_accent(self, name):
+        self._accent_name = name
         self._apply_accent(*ACCENTS[name])
 
     def _apply_accent(self, accent, hover):
@@ -777,13 +864,18 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.browse_btn.configure(fg_color=accent, hover_color=hover)
         self.model_menu.configure(button_color=accent, button_hover_color=hover)
         self.src_menu.configure(button_color=accent, button_hover_color=hover)
+        self.post_menu.configure(button_color=accent, button_hover_color=hover)
+        self.speed_seg.configure(selected_color=accent, selected_hover_color=hover)
         self.progress.configure(progress_color=accent)
         self.percent_lbl.configure(text_color=accent)
         self.char_val.configure(text_color=accent)
         self.min_val.configure(text_color=accent)
+        self.vad_val.configure(text_color=accent)
         self.char_slider.configure(button_color=accent, button_hover_color=hover,
                                    progress_color=accent)
         self.min_slider.configure(button_color=accent, button_hover_color=hover,
+                                  progress_color=accent)
+        self.vad_slider.configure(button_color=accent, button_hover_color=hover,
                                   progress_color=accent)
         self.sentence_switch.configure(progress_color=accent)
         self.preview_switch.configure(progress_color=accent)
@@ -816,18 +908,23 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.cap_model.configure(text=self.t("model"))
         self.cap_src.configure(text=self.t("src_lang"))
         self._rebuild_src_menu()
+        self.cap_speed.configure(text=self.t("speed_profile"))
+        self._rebuild_speed_seg()
         self.cap_lang.configure(text=self.t("language"))
         self.cap_sub.configure(text=self.t("sub_group"))
         self.char_cap.configure(text=self.t("char_limit"))
         self.char_val.configure(text=str(int(self.char_slider.get())))
         self.min_cap.configure(text=self.t("min_dur"))
         self.min_val.configure(text=f"{self.min_slider.get():.1f} {self.t('sec')}")
+        self.vad_cap.configure(text=self.t("vad_sens"))
         self.sentence_switch.configure(text=self.t("sentence_only"))
         self.preview_switch.configure(text=self.t("edit_before"))
         self.cap_fmt.configure(text=self.t("out_format"))
         self.cap_out.configure(text=self.t("out_folder"))
         self.out_btn.configure(text=self.t("choose_folder"))
         self._render_out_label()
+        self.cap_post.configure(text=self.t("post_action"))
+        self._rebuild_post_menu()
         self.cap_term.configure(text=self.t("term_hint"))
         self.term_entry.configure(placeholder_text=self.t("term_ph"))
         self.cap_appear.configure(text=self.t("appearance"))
@@ -839,7 +936,9 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.open_btn.configure(text=self.t("open_folder"))
         self.clear_all_btn.configure(text=self.t("clear_all"))
         self.log_cap.configure(text=self.t("log"))
+        self.export_btn.configure(text=self.t("log_export"))
         self.clear_btn.configure(text=self.t("clear"))
+        self._rebuild_log()         # günlüğü yeni dile göre yeniden çiz
         self._render_files()
         self._refresh_lang_buttons()
         self._render_status()
@@ -902,19 +1001,23 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         for raw in paths:
             path = os.path.normpath(str(raw).strip())
             if not os.path.isfile(path):
-                self._log(self.t("not_found", path))
+                self._logt("not_found", path)
+                continue
+            # Altyazı dosyası → kuyruğa alma, doğrudan düzenleyicide aç
+            if path.lower().endswith(SUBTITLE_EXTENSIONS):
+                self._open_subtitle_file(path)
                 continue
             if path in self.files:
                 continue
             if not path.lower().endswith(VIDEO_EXTENSIONS):
-                self._log(self.t("unsupported", path))
+                self._logt("unsupported", path)
             self.files.append(path)
             added += 1
         if added:
             self.drop_icon.configure(text="✓")
             self.last_srt = None
             self.open_btn.configure(state="disabled")
-            self._log(self.t("added_n", added))
+            self._logt("added_n", added)
         self._render_files()
         self._update_primary()
 
@@ -997,13 +1100,18 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
             self.primary_btn.configure(text=self.t("stopping"), state="disabled")
             return
         if not self.files:
-            self._log(self.t("err_no_file"))
+            self._logt("err_no_file")
             return
 
         formats = [f for f in ("srt", "vtt", "txt", "json") if self.fmt_vars[f].get()]
         if not formats:
-            self._log(self.t("no_format"))
+            self._logt("no_format")
             return
+
+        # VAD eşiği: hassasiyet 50 → 0.5 (faster-whisper varsayılanı, çıktı birebir aynı);
+        # yüksek hassasiyet → düşük eşik (sessiz/boğuk konuşmayı da yakalar).
+        sens = int(self.vad_slider.get())
+        vad_threshold = round(min(0.9, max(0.1, 0.5 - (sens - 50) / 100.0 * 0.4)), 3)
 
         opts = {
             "model": self.model_var.get(),
@@ -1015,6 +1123,8 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
             "formats": formats,
             "out_dir": self.out_dir,
             "preview": bool(self.preview_switch.get()),
+            "beam_size": 5 if self._speed == "fast" else 10,
+            "vad_threshold": vad_threshold,
         }
 
         self.cancel_event.clear()
@@ -1022,10 +1132,9 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.progress.set(0)
         self.percent_lbl.configure(text="0%")
         self._log("─" * 56)
-        self._log(self.t("starting"))
-        self._log(self.t("settings_line", opts["max_chars"], f"{opts['min_dur']:.1f}",
-                         self.t("on") if opts["sentence_only"] else self.t("off"),
-                         ", ".join(f.upper() for f in formats)))
+        self._logt("starting")
+        self._logt("settings_line", opts["max_chars"], f"{opts['min_dur']:.1f}",
+                   opts["sentence_only"], ", ".join(f.upper() for f in formats))
         threading.Thread(target=self._batch_worker,
                          args=(list(self.files), opts), daemon=True).start()
 
@@ -1034,7 +1143,7 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
             try:
                 os.startfile(os.path.dirname(self.last_srt))
             except Exception as e:
-                self._log(self.t("open_fail", e))
+                self._logt("open_fail", str(e))
 
     def _detect_device(self):
         try:
@@ -1061,6 +1170,114 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
                 self.log_queue.put(("raw", f"\n[notify] {e}\n"))
         threading.Thread(target=run, daemon=True).start()
 
+    # ----------------------------------------------------- işlem sonrası eylem
+    def _run_post_action(self):
+        """Batch başarıyla bitince seçili eylemi uygular (uyut/kapat/uygulamayı kapat).
+        Bildirim görünebilsin diye kısa bir gecikmeyle tetiklenir."""
+        action = self._post_action
+        if action == "quit":
+            self.after(1500, self._on_close)
+        elif action == "sleep":
+            self._logt("post_sleep_msg")
+            self.after(1500, lambda: threading.Thread(
+                target=lambda: os.system("rundll32.exe powrprof.dll,SetSuspendState 0,1,0"),
+                daemon=True).start())
+        elif action == "shutdown":
+            self._logt("post_shutdown_msg")
+            self.after(1500, lambda: os.system("shutdown /s /t 30"))
+
+    # ----------------------------------------------------- ayar kalıcılığı
+    def _settings_path(self):
+        base = os.environ.get("APPDATA") or os.path.expanduser("~")
+        return os.path.join(base, "AutoSRT", "settings.json")
+
+    def _collect_settings(self):
+        return {
+            "lang": self.lang,
+            "appearance": ctk.get_appearance_mode().lower(),
+            "accent": self._accent_name,
+            "model": self.model_var.get(),
+            "src_lang": self._cur_src_code,
+            "speed": self._speed,
+            "max_chars": int(self.char_slider.get()),
+            "min_dur": round(self.min_slider.get(), 1),
+            "vad_sens": int(self.vad_slider.get()),
+            "sentence_only": bool(self.sentence_switch.get()),
+            "preview": bool(self.preview_switch.get()),
+            "formats": [f for f in ("srt", "vtt", "txt", "json") if self.fmt_vars[f].get()],
+            "out_dir": self.out_dir,
+            "term": self.term_entry.get().strip(),
+            "post_action": self._post_action,
+        }
+
+    def _save_settings(self):
+        try:
+            p = self._settings_path()
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            with open(p, "w", encoding="utf-8") as f:
+                json.dump(self._collect_settings(), f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    def _load_settings(self):
+        try:
+            with open(self._settings_path(), encoding="utf-8") as f:
+                d = json.load(f)
+        except Exception:
+            return
+        try:
+            self._apply_settings(d)
+        except Exception:
+            pass
+
+    def _apply_settings(self, d):
+        mode = d.get("appearance")
+        if mode in ("dark", "light"):
+            ctk.set_appearance_mode(mode)
+            self.appear_seg.set("☾" if mode == "dark" else "☀")
+        if d.get("accent") in ACCENTS:
+            self._set_accent(d["accent"])
+        if d.get("model") in MODEL_SIZES:
+            self.model_var.set(d["model"])
+        if "src_lang" in d:
+            self._cur_src_code = d["src_lang"]
+            self._rebuild_src_menu()
+        if d.get("speed") in SPEED_PROFILES:
+            self._speed = d["speed"]
+            self._rebuild_speed_seg()
+        if "max_chars" in d:
+            self.char_slider.set(d["max_chars"])
+            self.char_val.configure(text=str(int(d["max_chars"])))
+        if "min_dur" in d:
+            self.min_slider.set(d["min_dur"])
+            self.min_val.configure(text=f"{float(d['min_dur']):.1f} {self.t('sec')}")
+        if "vad_sens" in d:
+            self.vad_slider.set(d["vad_sens"])
+            self.vad_val.configure(text=str(int(d["vad_sens"])))
+        (self.sentence_switch.select if d.get("sentence_only") else self.sentence_switch.deselect)()
+        (self.preview_switch.select if d.get("preview") else self.preview_switch.deselect)()
+        if isinstance(d.get("formats"), list) and d["formats"]:
+            for f, var in self.fmt_vars.items():
+                var.set(f in d["formats"])
+        od = d.get("out_dir")
+        if od and os.path.isdir(od):
+            self.out_dir = os.path.normpath(od)
+            self._render_out_label()
+        if d.get("term"):
+            self.term_entry.insert(0, d["term"])
+        if d.get("post_action") in POST_ACTIONS:
+            self._post_action = d["post_action"]
+            self._rebuild_post_menu()
+        if d.get("lang") in ("tr", "en"):
+            self._set_lang(d["lang"])      # _retext tüm yeni dili uygular
+
+    def _on_close(self):
+        self._save_settings()
+        try:
+            self.destroy()
+        except Exception:
+            pass
+
     # ============================================= ARKA PLAN TRANSCRIBE (THREAD)
     def _batch_worker(self, files, opts):
         try:
@@ -1071,7 +1288,7 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
                 import ctranslate2
                 if ctranslate2.get_cuda_device_count() < 1:
                     device, compute = "cpu", "int8"
-                    self._log(self.t("cpu_fb"))
+                    self._logt("cpu_fb")
             except Exception:
                 pass
 
@@ -1087,11 +1304,11 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
                     self.model = None
                     self._model_key = None
                     gc.collect()
-                self._log(self.t("loading_model", opts["model"], device, compute))
-                self._log(self.t("first_use"))
+                self._logt("loading_model", opts["model"], device, compute)
+                self._logt("first_use")
                 self.model = WhisperModel(opts["model"], device=device, compute_type=compute)
                 self._model_key = key
-                self._log(self.t("model_ready"))
+                self._logt("model_ready")
             if self.cancel_event.is_set():
                 raise _Cancelled()
 
@@ -1101,8 +1318,7 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
                 if self.cancel_event.is_set():
                     raise _Cancelled()
                 self._log("─" * 56)
-                self._log(self.t("file_progress", fi + 1, total)
-                          + f"  •  {os.path.basename(path)}")
+                self._logt("file_log", fi + 1, total, os.path.basename(path))
 
                 blocks = self._transcribe_one(path, opts, fi, total)
 
@@ -1136,17 +1352,17 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
                     ext, writer = WRITERS[fmt]
                     out_path = os.path.join(out_dir, base + "." + ext)
                     writer(blocks, out_path)
-                    self._log(self.t("saved", out_path))
+                    self._logt("saved", out_path)
                     saved_any = out_path
-                self._log("✓ " + self.t("done_blocks", len(blocks)))
+                self._logt("done_blocks", len(blocks))
 
             self.q(("progress", 1.0))
             self._log("─" * 56)
-            self._log("✓ " + self.t("batch_done", total))
+            self._logt("batch_done", total)
             self.q(("done", saved_any))
 
         except _Cancelled:
-            self._log("■ " + self.t("cancelled"))
+            self._logt("cancelled")
             self.q(("cancelled", None))
         except Exception as e:
             self._log(f"✕ {type(e).__name__}: {e}")
@@ -1156,11 +1372,12 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.q(("status", "st_analyzing", self.accent))
         segments, info = self.model.transcribe(
             video_path,
-            beam_size=10,
+            beam_size=opts.get("beam_size", 10),
             language=opts["src_lang"],
             initial_prompt=opts["initial_prompt"],
             vad_filter=True,
             vad_parameters=dict(
+                threshold=opts.get("vad_threshold", 0.5),
                 min_silence_duration_ms=300,
                 speech_pad_ms=100,
             ),
@@ -1170,7 +1387,7 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
 
         duration = info.duration or 0
         lang = f"{info.language} ({info.language_probability:.0%})"
-        self._log(self.t("detected", lang, format_timestamp(duration)))
+        self._logt("detected", lang, format_timestamp(duration))
         self.q(("status", "st_generating", self.accent))
 
         t0 = time.time()
@@ -1237,95 +1454,144 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         return blocks
 
     # ----------------------------------------------------- önizleme/düzenleme penceresi
-    def _open_editor(self, payload):
-        ev = payload["event"]
-        result = payload["result"]
-        blocks = payload["blocks"]
+    def _editor_window(self, name, blocks, hint, on_save, on_cancel, external_cancel):
+        """Ortak SRT düzenleyici penceresi. on_save(parsed)/on_cancel() geri çağrıları
+        kullanım yerine göre davranışı belirler (worker el sıkışması veya dosya kaydı).
+        external_cancel=True iken pencere dışarıdan (_active_editor) kapatılabilir."""
         orig_n = len(blocks)
         forced = {"on": False}
-        try:
-            win = ctk.CTkToplevel(self)
-            win.title(self.t("editor_title", payload["name"]))
-            win.geometry("780x640")
-            win.configure(fg_color=BG)
-            win.transient(self)
-            win.grid_columnconfigure(0, weight=1)
-            win.grid_rowconfigure(1, weight=1)
-            self.after(220, lambda: self._set_toplevel_icon(win))
+        win = ctk.CTkToplevel(self)
+        win.title(self.t("editor_title", name))
+        win.geometry("780x640")
+        win.configure(fg_color=BG)
+        win.transient(self)
+        win.grid_columnconfigure(0, weight=1)
+        win.grid_rowconfigure(1, weight=1)
+        self.after(220, lambda: self._set_toplevel_icon(win))
 
-            ctk.CTkLabel(win, text=self.t("editor_hint"), text_color=MUTED,
-                         font=ctk.CTkFont(FONT_UI, 12), anchor="w",
-                         wraplength=720, justify="left").grid(
-                row=0, column=0, sticky="ew", padx=20, pady=(18, 8))
+        ctk.CTkLabel(win, text=hint, text_color=MUTED,
+                     font=ctk.CTkFont(FONT_UI, 12), anchor="w",
+                     wraplength=720, justify="left").grid(
+            row=0, column=0, sticky="ew", padx=20, pady=(18, 8))
 
-            box = ctk.CTkTextbox(win, corner_radius=12, fg_color=TERM_BG,
-                                 text_color=TEXT, font=ctk.CTkFont(FONT_MONO, 13),
-                                 wrap="word", border_width=1, border_color=BORDER_SOFT)
-            box.grid(row=1, column=0, sticky="nsew", padx=20, pady=(0, 8))
-            box.insert("1.0", blocks_to_srt_text(blocks))
+        box = ctk.CTkTextbox(win, corner_radius=12, fg_color=TERM_BG,
+                             text_color=TEXT, font=ctk.CTkFont(FONT_MONO, 13),
+                             wrap="word", border_width=1, border_color=BORDER_SOFT)
+        box.grid(row=1, column=0, sticky="nsew", padx=20, pady=(0, 8))
+        box.insert("1.0", blocks_to_srt_text(blocks))
 
-            warn_lbl = ctk.CTkLabel(win, text="", text_color=RED,
-                                    font=ctk.CTkFont(FONT_UI, 12, weight="bold"),
-                                    anchor="w", wraplength=720, justify="left")
-            warn_lbl.grid(row=2, column=0, sticky="ew", padx=20, pady=(0, 4))
-            warn_lbl.grid_remove()
+        warn_lbl = ctk.CTkLabel(win, text="", text_color=RED,
+                                font=ctk.CTkFont(FONT_UI, 12, weight="bold"),
+                                anchor="w", wraplength=720, justify="left")
+        warn_lbl.grid(row=2, column=0, sticky="ew", padx=20, pady=(0, 4))
+        warn_lbl.grid_remove()
 
-            bar = ctk.CTkFrame(win, fg_color="transparent")
-            bar.grid(row=3, column=0, sticky="ew", padx=20, pady=(4, 18))
-            bar.grid_columnconfigure(0, weight=1)
+        bar = ctk.CTkFrame(win, fg_color="transparent")
+        bar.grid(row=3, column=0, sticky="ew", padx=20, pady=(4, 18))
+        bar.grid_columnconfigure(0, weight=1)
 
-            def finalize(parsed, cancel):
+        def close():
+            if external_cancel:
                 self._active_editor = None
-                result["blocks"] = parsed
-                result["cancel"] = cancel
-                ev.set()
-                try:
-                    win.destroy()
-                except Exception:
-                    pass
+            try:
+                win.destroy()
+            except Exception:
+                pass
 
-            def do_save():
-                # B) Doğrulama: kayıttan önce metni parse et, blok sayısını kıyasla.
-                parsed = parse_srt(box.get("1.0", "end"))
-                if not parsed:
-                    warn_lbl.configure(text=self.t("editor_empty"))
-                    warn_lbl.grid()
-                    return
-                if len(parsed) != orig_n and not forced["on"]:
-                    warn_lbl.configure(text=self.t("editor_mismatch", orig_n, len(parsed)))
-                    warn_lbl.grid()
-                    forced["on"] = True
-                    save_btn.configure(text=self.t("save_anyway"), fg_color=WARN,
-                                       hover_color="#b45309")
-                    return
-                finalize(parsed, False)
+        def do_save():
+            # Doğrulama: kayıttan önce metni parse et, blok sayısını kıyasla.
+            parsed = parse_srt(box.get("1.0", "end"))
+            if not parsed:
+                warn_lbl.configure(text=self.t("editor_empty"))
+                warn_lbl.grid()
+                return
+            if len(parsed) != orig_n and not forced["on"]:
+                warn_lbl.configure(text=self.t("editor_mismatch", orig_n, len(parsed)))
+                warn_lbl.grid()
+                forced["on"] = True
+                save_btn.configure(text=self.t("save_anyway"), fg_color=WARN,
+                                   hover_color="#b45309")
+                return
+            close()
+            on_save(parsed)
 
-            def do_cancel():
-                finalize(None, True)
+        def do_cancel():
+            close()
+            on_cancel()
 
-            ctk.CTkButton(bar, text=self.t("cancel"), width=120, height=42, corner_radius=10,
-                          fg_color=SURFACE2, hover_color=HOVER, text_color=TEXT,
-                          border_width=1, border_color=BORDER,
-                          font=ctk.CTkFont(FONT_UI, 13), command=do_cancel).grid(
-                row=0, column=1, padx=(0, 10))
-            save_btn = ctk.CTkButton(bar, text=self.t("save"), width=170, height=42,
-                                     corner_radius=10, fg_color=self.accent,
-                                     hover_color=self.accent_hover, text_color="#ffffff",
-                                     font=ctk.CTkFont(FONT_UI, 14, weight="bold"),
-                                     command=do_save)
-            save_btn.grid(row=0, column=2)
+        ctk.CTkButton(bar, text=self.t("cancel"), width=120, height=42, corner_radius=10,
+                      fg_color=SURFACE2, hover_color=HOVER, text_color=TEXT,
+                      border_width=1, border_color=BORDER,
+                      font=ctk.CTkFont(FONT_UI, 13), command=do_cancel).grid(
+            row=0, column=1, padx=(0, 10))
+        save_btn = ctk.CTkButton(bar, text=self.t("save"), width=170, height=42,
+                                 corner_radius=10, fg_color=self.accent,
+                                 hover_color=self.accent_hover, text_color="#ffffff",
+                                 font=ctk.CTkFont(FONT_UI, 14, weight="bold"),
+                                 command=do_save)
+        save_btn.grid(row=0, column=2)
 
-            # A) Pencere X ile kapatılırsa da iptal akışı çalışır (deadlock önlemi).
-            win.protocol("WM_DELETE_WINDOW", do_cancel)
+        # Pencere X ile kapatılırsa da iptal akışı çalışır (deadlock önlemi).
+        win.protocol("WM_DELETE_WINDOW", do_cancel)
+        if external_cancel:
             # "Durdur" sırasında worker'ın bu düzenleyiciyi dışarıdan kapatabilmesi için:
             self._active_editor = do_cancel
-            win.after(120, lambda: (win.lift(), win.focus_force(), self._grab(win)))
+        win.after(120, lambda: (win.lift(), win.focus_force(), self._grab(win)))
+
+    def _open_editor(self, payload):
+        """Worker el sıkışması: blokları düzenler, sonucu result/event ile worker'a döndürür."""
+        ev = payload["event"]
+        result = payload["result"]
+
+        def on_save(parsed):
+            result["blocks"] = parsed
+            result["cancel"] = False
+            ev.set()
+
+        def on_cancel():
+            result["blocks"] = None
+            result["cancel"] = True
+            ev.set()
+
+        try:
+            self._editor_window(payload["name"], payload["blocks"], self.t("editor_hint"),
+                                on_save, on_cancel, external_cancel=True)
         except Exception as e:
             # Düzenleyici açılamazsa worker'ı serbest bırak; orijinal bloklar kullanılır.
             self.log_queue.put(("raw", f"\n[editor] {e}\n"))
             self._active_editor = None
             result["blocks"] = None
             ev.set()
+
+    def _open_subtitle_file(self, path):
+        """Sürüklenen/seçilen .srt/.vtt dosyasını bağımsız olarak düzenleyicide açar;
+        kaydedince aynı dosyanın üzerine (uzantısına uygun biçimde) yazar."""
+        try:
+            with open(path, encoding="utf-8") as f:
+                text = f.read()
+        except Exception as e:
+            self._logt("editor_file_err", str(e))
+            return
+        blocks = parse_srt(text)
+        if not blocks:
+            self._logt("editor_file_err", os.path.basename(path))
+            return
+        ext = os.path.splitext(path)[1].lower().lstrip(".")
+        writer = WRITERS.get(ext, WRITERS["srt"])[1]
+
+        def on_save(parsed):
+            try:
+                writer(_sanitize_blocks(parsed), path)
+                self._logt("editor_file_saved", path)
+            except Exception as e:
+                self._log(f"✕ {e}")
+
+        try:
+            self._editor_window(os.path.basename(path), blocks, self.t("editor_file_hint"),
+                                on_save, lambda: None, external_cancel=False)
+            self._logt("sub_loaded", os.path.basename(path))
+        except Exception as e:
+            self._logt("editor_file_err", str(e))
 
     def _grab(self, win):
         try:
@@ -1335,10 +1601,12 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
 
     # ===================================================================== KUYRUK
     def _log(self, message):
+        """Dilden bağımsız düz metin satırı (zaman damgaları, altyazı metni, ayraçlar)."""
         self.log_queue.put(("log", message))
 
-    def _log_key(self, key, *a):
-        self._log(self.t(key, *a))
+    def _logt(self, key, *args):
+        """Çevrilebilir log satırı: anahtar+argümanlar saklanır, dil değişiminde tazelenir."""
+        self.log_queue.put(("logt", key, args))
 
     def q(self, item):
         self.log_queue.put(item)
@@ -1349,9 +1617,15 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
                 item = self.log_queue.get_nowait()
                 kind = item[0]
                 if kind == "log":
-                    self._append_log(item[1])
+                    self._log_entries.append(("plain", item[1]))
+                    self._insert_line(item[1])
+                elif kind == "logt":
+                    entry = ("t", item[1], item[2])
+                    self._log_entries.append(entry)
+                    self._insert_line(self._fmt_log_entry(entry))
                 elif kind == "raw":
-                    self._write_raw(item[1])
+                    self._log_entries.append(("raw", item[1]))
+                    self._insert_raw(item[1])
                 elif kind == "status":
                     self._set_status(item[1], item[2])
                 elif kind == "progress":
@@ -1374,6 +1648,7 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
                     self._set_busy(False)
                     if item[1]:
                         self._notify(item[1])
+                    self._run_post_action()
                 elif kind == "cancelled":
                     self._set_status("st_stopped", WARN)
                     self._set_busy(False)
@@ -1422,7 +1697,16 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
                                                        d["lang"]))
 
     # ----------------------------------------------------- günlük yazımı
-    def _append_log(self, message):
+    def _fmt_log_entry(self, entry):
+        """('t', key, args) girdisini geçerli dile göre metne çevirir.
+        settings_line'ın açık/kapalı argümanı çevrim anında çözülür (iç içe çeviri)."""
+        _, key, args = entry
+        if key == "settings_line" and len(args) >= 3:
+            args = list(args)
+            args[2] = self.t("on") if args[2] else self.t("off")
+        return self.t(key, *args)
+
+    def _insert_line(self, message):
         box = self.log_box
         box.configure(state="normal")
         if box.get("end-2c", "end-1c") not in ("\n", ""):
@@ -1431,7 +1715,7 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         box.see("end")
         box.configure(state="disabled")
 
-    def _write_raw(self, s):
+    def _insert_raw(self, s):
         box = self.log_box
         box.configure(state="normal")
         s = s.replace("\r\n", "\n")
@@ -1445,10 +1729,44 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         box.see("end")
         box.configure(state="disabled")
 
-    def _clear_log(self):
+    def _rebuild_log(self):
+        """Dil değişiminde tüm günlüğü saklı girdilerden yeniden çizer."""
         self.log_box.configure(state="normal")
         self.log_box.delete("1.0", "end")
         self.log_box.configure(state="disabled")
+        for entry in self._log_entries:
+            kind = entry[0]
+            if kind == "t":
+                self._insert_line(self._fmt_log_entry(entry))
+            elif kind == "raw":
+                self._insert_raw(entry[1])
+            else:
+                self._insert_line(entry[1])
+
+    def _clear_log(self):
+        self._log_entries = []
+        self.log_box.configure(state="normal")
+        self.log_box.delete("1.0", "end")
+        self.log_box.configure(state="disabled")
+
+    def _export_log(self):
+        text = self.log_box.get("1.0", "end").strip()
+        if not text:
+            self._logt("log_empty")
+            return
+        from tkinter import filedialog
+        path = filedialog.asksaveasfilename(
+            title=self.t("log_export"), defaultextension=".txt",
+            initialfile="autosrt-log.txt",
+            filetypes=[("Text", "*.txt"), ("All files", "*.*")])
+        if not path:
+            return
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(text + "\n")
+            self._logt("log_saved", path)
+        except Exception as e:
+            self._log(f"✕ {e}")
 
     # ----------------------------------------------------- durum kilidi
     def _set_busy(self, busy):
