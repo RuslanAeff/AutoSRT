@@ -337,7 +337,8 @@ class HybridPipeline:
         if not pending:
             cb.logt("hy_cached", "gemini")
             return results
-        if opts.get("manual_mode"):
+        if opts.get("manual_mode") or (self.manual_event is not None
+                                       and self.manual_event.is_set()):
             cb.logt("hy_manual")
             return None
 
