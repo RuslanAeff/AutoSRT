@@ -68,6 +68,8 @@ from autosrt_core import pipeline as HP
 from autosrt_core import judge as GJ
 from autosrt_core import parakeet as PKE
 from autosrt_core import jobs as HJ
+from autosrt_core import screenfit as SF
+import tkinter
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -210,6 +212,15 @@ ENGINES = ("whisper", "whisper_parakeet", "hybrid", "gemini")
 PIPELINE_MODES = ("whisper_parakeet", "hybrid")
 DEFAULT_MODE = "hybrid"
 SETTINGS_VERSION = 17          # settings.json şeması (v1.7); eskiyse mod varsayılana taşınır
+
+# --- PENCERE BOYUTLARI: (istenen, en küçük) — mantıksal CTk birimi ------------
+# DEĞİŞMEZ KURAL (AGENTS.md, tests/test_screenfit.py): pencere boyutu/konumu
+# YALNIZCA AutoSRTApp._place_window ile verilir. Bu değerler bir "istek"tir;
+# ekran (görev çubuğu hariç) küçükse otomatik küçültülür ve pencere ortalanır.
+# Hiçbir yerde sabit .geometry("GENxYÜK") / .minsize(...) çağrısı yazmayın.
+WIN_MAIN = ((1100, 820), (980, 540))   # min genişlik: 4 motor etiketi kırpılmasın
+WIN_EDITOR = ((780, 640), (520, 400))
+WIN_WIZARD = ((780, 700), (600, 500))
 
 # --- GEMINI 3.5 TRANSCRIBE ---
 GEMINI_MODEL = "gemini-3.5-transcribe"
@@ -1318,6 +1329,93 @@ _ERR_KEYS = {
 }
 
 
+class _FitScrollFrame(ctk.CTkFrame):
+    """Ana içerik kabı — DEĞİŞMEZ (AGENTS.md, tests/test_screenfit.py).
+
+    * Pencere içeriğe yetiyorsa: iç çerçeve görünür yüksekliğe UZATILIR, böylece
+      ağırlıklı satırlar (Günlük paneli) boşluğu doldurur — kaydırma çubuğu yok.
+    * Pencere içerikten kısaysa: hiçbir şey KESİLMEZ, dikey kaydırma çubuğu çıkar.
+    İçeriğin istenen yüksekliği periyodik izlenir; ileride eklenen/gizlenen her
+    widget otomatik hesaba katılır (elle "refresh" çağırmak gerekmez).
+    Ana alanı bu kabın dışına taşımayın ve düz bir CTkFrame ile değiştirmeyin.
+    """
+    WATCH_MS = 250
+
+    def __init__(self, master, bg):
+        super().__init__(master, fg_color=bg, corner_radius=0, border_width=0)
+        self._bg = bg
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(0, weight=1)
+        self._canvas = tkinter.Canvas(self, highlightthickness=0, bd=0,
+                                      bg=self._apply_appearance_mode(bg),
+                                      yscrollincrement=24)
+        self._canvas.grid(row=0, column=0, sticky="nsew")
+        self._sb = ctk.CTkScrollbar(self, orientation="vertical", command=self._canvas.yview,
+                                    button_color=BORDER, button_hover_color=MUTED)
+        self._sb.grid(row=0, column=1, sticky="ns", padx=(0, 2))
+        self._sb.grid_remove()
+        self._canvas.configure(yscrollcommand=self._sb.set)
+        self.inner = ctk.CTkFrame(self._canvas, fg_color=bg, corner_radius=0, border_width=0)
+        self._item = self._canvas.create_window(0, 0, window=self.inner, anchor="nw")
+        self.scrolling = False
+        self._last = None
+        self._canvas.bind("<Configure>", lambda e: self.sync(), add="+")
+        # CTk bileşenleri bind_all'a izin vermez; CTkScrollableFrame gibi tk Canvas'tan bağlanır.
+        self._canvas.bind_all("<MouseWheel>", self._on_wheel, add="+")
+        self.after(self.WATCH_MS, self._watch)
+
+    def sync(self):
+        cw, ch = self._canvas.winfo_width(), self._canvas.winfo_height()
+        need = self.inner.winfo_reqheight()
+        if cw <= 1 or ch <= 1:
+            return
+        state = (cw, ch, need)
+        if state == self._last:
+            return
+        self._last = state
+        h = max(ch, need)
+        self._canvas.itemconfigure(self._item, width=cw, height=h)
+        self._canvas.configure(scrollregion=(0, 0, cw, h))
+        overflow = need > ch + 1
+        if overflow != self.scrolling:
+            self.scrolling = overflow
+            if overflow:
+                self._sb.grid()
+            else:
+                self._sb.grid_remove()
+                self._canvas.yview_moveto(0)
+
+    def _watch(self):
+        try:
+            self.sync()
+            self.after(self.WATCH_MS, self._watch)
+        except tkinter.TclError:
+            pass                                    # pencere kapandı
+
+    def _on_wheel(self, event):
+        if not self.scrolling or isinstance(event.widget, str):
+            return
+        try:
+            if event.widget.winfo_class() == "Text":
+                return                              # günlük kutusu kendi kaydırır
+        except Exception:
+            return
+        w = event.widget
+        while w is not None:
+            if w is self._canvas:
+                step = -int(event.delta / 120) or (-1 if event.delta > 0 else 1)
+                self._canvas.yview_scroll(step, "units")
+                return
+            w = getattr(w, "master", None)
+
+    def _set_appearance_mode(self, mode_string):
+        super()._set_appearance_mode(mode_string)
+        try:
+            self._canvas.configure(bg=self._apply_appearance_mode(self._bg))
+        except Exception:
+            pass
+
+
 class _QueueCallbacks(HP.Callbacks):
     """Boru hattı geri çağrılarını GUI kuyruğuna çevirir (worker thread → ana thread).
     Tkinter'a ASLA doğrudan dokunmaz."""
@@ -1348,6 +1446,9 @@ class _QueueCallbacks(HP.Callbacks):
 class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
     def __init__(self):
         super().__init__()
+        # Pencere, ekrana sığdırılıp ortalanana kadar GİZLİ kurulur (yanlış yerde
+        # belirip zıplamasın). Gösterim: _reveal_main.
+        self.withdraw()
         self.TkdndVersion = TkinterDnD._require(self)
 
         self.files = []                 # sıradaki dosya yolları
@@ -1381,8 +1482,6 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
 
         ctk.set_appearance_mode("dark")
         self.title("AutoSRT")
-        self.geometry("1100x820")
-        self.minsize(980, 640)
         self.configure(fg_color=BG)
         self._set_window_icon()
         self.grid_columnconfigure(0, weight=0)
@@ -1399,10 +1498,72 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self._update_primary()
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+        self._place_window(self, *WIN_MAIN)
+        self.after(30, self._reveal_main)
         self.after(80, self._poll_log_queue)
         threading.Thread(target=self._detect_device, daemon=True).start()
         # 30 günden eski, yarım kalmış iş klasörlerini temizle (ortalık dağılmasın).
         threading.Thread(target=lambda: HJ.cleanup_stale(30), daemon=True).start()
+
+    # ================================================= PENCERE ↔ EKRAN (DEĞİŞMEZ)
+    # Kural: hiçbir pencere açıldığı monitörün çalışma alanını (görev çubuğu hariç)
+    # aşmaz ve ortalanmış açılır. Boyut/konum YALNIZCA bu iki metotla verilir;
+    # tests/test_screenfit.py başka yerde .geometry/.minsize/.maxsize görürse kırılır.
+    def _place_window(self, win, desired, minimum):
+        """Pencereyi istenen boyuta (ekran izin verdiği kadar) getirir ve ortalar."""
+        try:
+            scale = ctk.ScalingTracker.get_window_scaling(win)
+        except Exception:
+            scale = 1.0
+        anchor = None
+        if win is not self:
+            try:                       # alt pencereler ana pencerenin monitöründe açılır
+                anchor = (self.winfo_rootx() + self.winfo_width() // 2,
+                          self.winfo_rooty() + self.winfo_height() // 2)
+            except Exception:
+                anchor = None
+        work = SF.monitor_work_area(anchor)
+        if work is None:               # ölçülemedi (Windows dışı vb.): güvenli tahmin
+            sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
+            work = (0, 0, sw, max(200, sh - int(60 * scale)))
+        fit = SF.fit_geometry(work, scale, desired, minimum)
+        win._fit_work = work
+        win.minsize(fit.min_width, fit.min_height)
+        win.geometry(f"{fit.width}x{fit.height}+{fit.x}+{fit.y}")
+        # Gösterildikten sonra GERÇEK çerçeveyi ölç ve gerekirse düzelt.
+        win.after(250, lambda: self._keep_on_screen(win))
+        return fit
+
+    def _keep_on_screen(self, win):
+        """Gösterilmiş pencerenin görünür dış sınırını ölçer; çalışma alanından
+        taşıyorsa önce kaydırır, yetmezse küçültür (tahmin hatasına karşı sigorta)."""
+        try:
+            if not win.winfo_exists() or win.state() != "normal":
+                return
+            work = getattr(win, "_fit_work", None)
+            rect = SF.visible_window_rect(int(win.wm_frame(), 16))
+            if not work or not rect:
+                return
+            dx, dy, sw, sh = SF.overflow_fix(rect, work)
+            if not (dx or dy or sw or sh):
+                return
+            scale = ctk.ScalingTracker.get_window_scaling(win) or 1.0
+            new_w = max(1, int((win.winfo_width() - sw) / scale))
+            new_h = max(1, int((win.winfo_height() - sh) / scale))
+            win.minsize(min(new_w, getattr(win, "_min_width", new_w) or new_w),
+                        min(new_h, getattr(win, "_min_height", new_h) or new_h))
+            win.geometry(f"{new_w}x{new_h}+{win.winfo_x() + dx}+{win.winfo_y() + dy}")
+        except Exception:
+            pass
+
+    def _reveal_main(self):
+        self.deiconify()
+        self.lift()
+        try:
+            self.focus_force()
+        except Exception:
+            pass
+        self.after(200, lambda: self._keep_on_screen(self))
 
     def _set_window_icon(self):
         """Pencere + gorev cubugu ikonunu icon.ico'dan ayarlar."""
@@ -1793,49 +1954,53 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
 
     # ===================================================================== ANA ALAN
     def _build_main(self):
-        main = ctk.CTkFrame(self, fg_color="transparent")
-        main.grid(row=0, column=1, sticky="nsew", padx=36, pady=24)
+        # DEĞİŞMEZ: ana içerik _FitScrollFrame içinde yaşar — pencere kısalırsa
+        # hiçbir şey kesilmez, kaydırma çubuğu çıkar (bkz. AGENTS.md).
+        self.main_scroll = _FitScrollFrame(self, BG)
+        self.main_scroll.grid(row=0, column=1, sticky="nsew")
+        main = ctk.CTkFrame(self.main_scroll.inner, fg_color="transparent")
+        main.pack(fill="both", expand=True, padx=36, pady=(18, 20))
         main.grid_columnconfigure(0, weight=1)
         main.grid_rowconfigure(7, weight=1, minsize=150)
 
+        # Başlık: ad + alt başlık TEK satırda (dikey alan ana içeriğe kalsın)
         head = ctk.CTkFrame(main, fg_color="transparent")
-        head.grid(row=0, column=0, sticky="ew", pady=(0, 20))
+        head.grid(row=0, column=0, sticky="ew", pady=(0, 14))
         ctk.CTkLabel(head, text="AutoSRT",
-                     font=ctk.CTkFont(FONT_UI, 30, weight="bold"),
-                     text_color=TEXT).pack(anchor="w")
+                     font=ctk.CTkFont(FONT_UI, 26, weight="bold"),
+                     text_color=TEXT).pack(side="left", anchor="s")
         self.subtitle_lbl = ctk.CTkLabel(head, text=self.t("subtitle"),
-                                         font=ctk.CTkFont(FONT_UI, 14), text_color=MUTED)
-        self.subtitle_lbl.pack(anchor="w", pady=(2, 0))
+                                         font=ctk.CTkFont(FONT_UI, 13), text_color=MUTED)
+        self.subtitle_lbl.pack(side="left", anchor="s", padx=(14, 0), pady=(0, 4))
 
-        # Sürükle-bırak kartı
-        self.drop_frame = ctk.CTkFrame(main, height=158, corner_radius=18,
+        # Sürükle-bırak kartı: boş kuyrukta büyük hedef, dosya varken ince şerit
+        # (bkz. _set_drop_compact). Yükseklikler içeriğe göre hesaplıdır — kesilmez.
+        self.drop_frame = ctk.CTkFrame(main, height=self.DROP_FULL_H, corner_radius=18,
                                        border_width=2, border_color=BORDER_SOFT,
                                        fg_color=SURFACE)
         self.drop_frame.grid(row=1, column=0, sticky="ew")
         self.drop_frame.grid_propagate(False)
         self.drop_frame.grid_columnconfigure(0, weight=1)
-        self.drop_frame.grid_rowconfigure((0, 4), weight=1)
+        self.drop_frame.grid_rowconfigure((0, 5), weight=1)
 
-        self.badge = ctk.CTkFrame(self.drop_frame, width=56, height=56, corner_radius=28,
+        self.badge = ctk.CTkFrame(self.drop_frame, width=48, height=48, corner_radius=24,
                                   fg_color=SURFACE2)
-        self.badge.grid(row=1, column=0)
         self.badge.grid_propagate(False)
         self.drop_icon = ctk.CTkLabel(self.badge, text="↓",
-                                      font=ctk.CTkFont(FONT_UI, 26, weight="bold"))
+                                      font=ctk.CTkFont(FONT_UI, 22, weight="bold"))
         self.drop_icon.place(relx=0.5, rely=0.5, anchor="center")
 
         self.drop_title = ctk.CTkLabel(self.drop_frame, text=self.t("drop_title"),
                                        font=ctk.CTkFont(FONT_UI, 17, weight="bold"),
                                        text_color=TEXT)
-        self.drop_title.grid(row=2, column=0, pady=(10, 2))
         self.or_lbl = ctk.CTkLabel(self.drop_frame, text=f"—  {self.t('or')}  —",
                                    font=ctk.CTkFont(FONT_UI, 12), text_color=FAINT)
-        self.or_lbl.grid(row=3, column=0, pady=2)
         self.browse_btn = ctk.CTkButton(self.drop_frame, text=self.t("browse"),
-                                        width=160, height=38, corner_radius=10,
+                                        width=160, height=34, corner_radius=10,
                                         font=ctk.CTkFont(FONT_UI, 13, weight="bold"),
                                         command=self.browse_file)
-        self.browse_btn.grid(row=4, column=0, pady=(0, 6))
+        self._drop_compact = None
+        self._set_drop_compact(False)
 
         for w in (self.drop_frame, self.badge, self.drop_icon, self.drop_title):
             w.drop_target_register(DND_FILES)
@@ -1979,8 +2144,10 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
                                        text_color=TEXT, border_width=1, border_color=BORDER,
                                        font=ctk.CTkFont(FONT_UI, 11), command=self._clear_log)
         self.clear_btn.grid(row=0, column=2, sticky="e")
+        # height küçük tutulur: bu yalnızca EN KÜÇÜK istek; satır ağırlığı sayesinde
+        # boş alan varsa Günlük paneli büyür (_FitScrollFrame uzatır).
         self.log_box = ctk.CTkTextbox(logc, corner_radius=10, fg_color=TERM_BG,
-                                      text_color=TERM_TXT,
+                                      text_color=TERM_TXT, height=90,
                                       font=ctk.CTkFont(FONT_MONO, 13), wrap="word")
         self.log_box.grid(row=1, column=0, sticky="nsew", padx=16, pady=14)
         self.log_box.configure(state="disabled")
@@ -2212,10 +2379,35 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
             self.files[i], self.files[j] = self.files[j], self.files[i]
             self._render_files()
 
+    DROP_FULL_H = 150      # rozet 48 + başlık + "veya" + düğme 34 + paylar
+    DROP_COMPACT_H = 60    # tek satır: başlık + düğme
+
+    def _set_drop_compact(self, compact):
+        """Kuyrukta dosya varken sürükle-bırak kartını ince şeride çevirir; sürükleme
+        hedefi ve 'Dosya Seç' aynen çalışır, yalnız dikey alan Günlük'e kalır."""
+        if compact == self._drop_compact:
+            return
+        self._drop_compact = compact
+        for w in (self.badge, self.drop_title, self.or_lbl, self.browse_btn):
+            w.grid_forget()
+        if compact:
+            self.drop_frame.configure(height=self.DROP_COMPACT_H)
+            self.drop_title.configure(font=ctk.CTkFont(FONT_UI, 14, weight="bold"))
+            self.drop_title.grid(row=2, column=0, sticky="w", padx=(22, 8))
+            self.browse_btn.grid(row=2, column=1, sticky="e", padx=(8, 14))
+        else:
+            self.drop_frame.configure(height=self.DROP_FULL_H)
+            self.drop_title.configure(font=ctk.CTkFont(FONT_UI, 17, weight="bold"))
+            self.badge.grid(row=1, column=0, columnspan=2)
+            self.drop_title.grid(row=2, column=0, columnspan=2, pady=(8, 0))
+            self.or_lbl.grid(row=3, column=0, columnspan=2, pady=(0, 2))
+            self.browse_btn.grid(row=4, column=0, columnspan=2)
+
     def _render_files(self):
         for w in self.files_list.winfo_children():
             w.destroy()
         n = len(self.files)
+        self._set_drop_compact(n > 0)
         if not n:
             self.files_card.grid_remove()
             return
@@ -2765,7 +2957,7 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         forced = {"on": False}
         win = ctk.CTkToplevel(self)
         win.title(name if raw_title else self.t("editor_title", name))
-        win.geometry("780x640")
+        self._place_window(win, *WIN_EDITOR)
         win.configure(fg_color=BG)
         win.transient(self)
         win.grid_columnconfigure(0, weight=1)
@@ -2950,8 +3142,7 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         win = ctk.CTkToplevel(self)
         self._mw = win
         win.title(self.t("mw_title", os.path.basename(path)))
-        win.geometry("780x700")
-        win.minsize(640, 560)
+        self._place_window(win, *WIN_WIZARD)
         win.configure(fg_color=BG)
         win.transient(self)
         win.grid_columnconfigure(0, weight=1)
