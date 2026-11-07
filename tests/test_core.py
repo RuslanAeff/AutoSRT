@@ -262,6 +262,24 @@ class TestManualSession(unittest.TestCase):
         self.assertEqual(res[2]["via"], "manual")
 
 
+class TestModelsAndI18n(unittest.TestCase):
+    def test_default_model_is_in_dropdown(self):
+        self.assertIn(J.DEFAULT_MODEL, J.GEMINI_MODELS)
+        self.assertEqual(J.GEMINI_MODELS[0], J.DEFAULT_MODEL)
+
+    def test_tr_and_en_tables_have_the_same_keys(self):
+        import ast
+        path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "main.py")
+        with open(path, encoding="utf-8") as f:
+            tree = ast.parse(f.read())
+        L = next(ast.literal_eval(n.value) for n in tree.body
+                 if isinstance(n, ast.Assign) and getattr(n.targets[0], "id", "") == "L")
+        self.assertEqual(sorted(set(L["tr"]) - set(L["en"])), [], "EN'de eksik anahtar")
+        self.assertEqual(sorted(set(L["en"]) - set(L["tr"])), [], "TR'de eksik anahtar")
+        for kind in ("rate", "server", "net"):
+            self.assertIn("kind_" + kind, L["tr"])
+
+
 class TestAudio(unittest.TestCase):
     def test_speech_windows(self):
         sr = 16000
