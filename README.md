@@ -22,6 +22,25 @@
 
 ---
 
+## Ekran Görüntüsü / Screenshot
+
+![AutoSRT — İnci görünümü, Türkçe arayüz](docs/interface-light.png)
+
+![AutoSRT — Grafit görünümü, Türkçe arayüz](docs/interface-dark.png)
+
+![AutoSRT — Graphite appearance, English interface](docs/interface-dark-en.png)
+
+Ayarlar **Motor**, **Çıktı** ve **Görünüm** sekmelerinde düzenlenir. Açıklamalı motor
+kartları, dosya kuyruğu ve işlem durumu ana çalışma alanındadır. Küçük pencerelerde
+içerik kaydırılır; açık/koyu tema ve TR/EN dil değişimi anında uygulanır.
+
+**İnci / Grafit:** sıcak beyaz ve alüminyum ya da nötr kömür grisi yüzeyler.
+**Vurgu renkleri:** Grafit, Mavi, Adaçayı, Gül ve Lavanta. Dosya ekleme kartında
+ince ışıklı kenarlarla buzlu cam hissi kullanılır; bu efekt gerçek masaüstü
+bulanıklığı veya şeffaflığı uygulamaz. Windows 11 başlık çubuğu da palete uyum sağlar.
+
+---
+
 ## Özellikler / Features
 
 | | TR | EN |
@@ -49,25 +68,6 @@
 | 🔇 | CMD/konsol penceresi açılmaz (pythonw) | No CMD/console window (pythonw) |
 | 🧠 | Model seçici (large-v3 → tiny), bellekte önbellekleme + VRAM tahliyesi | Model picker (large-v3 → tiny), cached + VRAM eviction |
 | ⚙️ | Çekirdek mikro-dilimleme mantığı birebir korundu | Core micro-slicing logic preserved exactly |
-
----
-
-## Ekran Görüntüsü / Screenshot
-
-![AutoSRT — İnci görünümü, Türkçe arayüz](docs/interface-light.png)
-
-![AutoSRT — Grafit görünümü, Türkçe arayüz](docs/interface-dark.png)
-
-![AutoSRT — Graphite appearance, English interface](docs/interface-dark-en.png)
-
-Ayarlar **Motor**, **Çıktı** ve **Görünüm** sekmelerinde düzenlenir. Açıklamalı motor
-kartları, dosya kuyruğu ve işlem durumu ana çalışma alanındadır. Küçük pencerelerde
-içerik kaydırılır; açık/koyu tema ve TR/EN dil değişimi anında uygulanır.
-
-**İnci / Grafit:** sıcak beyaz ve alüminyum ya da nötr kömür grisi yüzeyler.
-**Vurgu renkleri:** Grafit, Mavi, Adaçayı, Gül ve Lavanta. Dosya ekleme kartında
-ince ışıklı kenarlarla buzlu cam hissi kullanılır; bu efekt gerçek masaüstü
-bulanıklığı veya şeffaflığı uygulamaz. Windows 11 başlık çubuğu da palete uyum sağlar.
 
 ---
 
