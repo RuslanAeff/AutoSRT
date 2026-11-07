@@ -13,6 +13,13 @@ import re
 import time
 
 DEFAULT_MODEL = "gemini-3.8-flash"     # ücretsiz katmanda; ses girdisi + yapılandırılmış çıktı
+# Arayüzdeki açılır liste. Hepsi resmî fiyat sayfasında ücretsiz katmanda ve ses
+# girdisi kabul ediyor (Kasım 2026). Liste dışı bir ad da elle yazılabilir.
+GEMINI_MODELS = (
+    "gemini-3.8-flash",        # varsayılan: en güçlü Flash
+    "gemini-3.5-flash-lite",   # daha hızlı / hafif
+    "gemini-3.1-flash-lite",
+)
 CONTEXT_LINES = 4                      # önceki parçadan bağlam satırı (yalnızca okunur)
 MAX_WAIT_SEC = 300                     # tek bir geri çekilmede en uzun bekleme
 MAX_TRIES = 6                          # 429/5xx için toplam deneme
