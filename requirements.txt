@@ -2,6 +2,9 @@
 
 # Arayuz (modern, koyu tema)
 customtkinter>=5.2.2
+# Arayuz cizimi: uygulama ikonu, puruzsuz yuzeyler, buzlu cam, oklar (autosrt_widgets.py).
+# customtkinter bunu KENDISI KURMAZ; eksikse uygulama hic acilmaz.
+Pillow>=10.1
 
 # Surukle-birak (drag & drop) destegi
 tkinterdnd2>=0.4.2
