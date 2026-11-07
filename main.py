@@ -61,6 +61,8 @@ for site_dir in site.getsitepackages() + [site.getusersitepackages()]:
 
 import customtkinter as ctk
 from tkinterdnd2 import DND_FILES, TkinterDnD
+from PIL import Image
+from autosrt_widgets import SmoothFrame, ChoiceCard, OptionMenu, ComboBox, symbol
 
 # Hibrit motor çekirdeği (Whisper + Parakeet + Gemini hakem). Tkinter'a bağımlı
 # değildir; Whisper motoru ve dilimleyici aşağıdan enjekte edilir.
@@ -218,7 +220,7 @@ SETTINGS_VERSION = 17          # settings.json şeması (v1.7); eskiyse mod vars
 # YALNIZCA AutoSRTApp._place_window ile verilir. Bu değerler bir "istek"tir;
 # ekran (görev çubuğu hariç) küçükse otomatik küçültülür ve pencere ortalanır.
 # Hiçbir yerde sabit .geometry("GENxYÜK") / .minsize(...) çağrısı yazmayın.
-WIN_MAIN = ((1100, 820), (980, 540))   # min genişlik: 4 motor etiketi kırpılmasın
+WIN_MAIN = ((1160, 860), (900, 540))
 WIN_EDITOR = ((780, 640), (520, 400))
 WIN_WIZARD = ((780, 700), (600, 500))
 
@@ -265,45 +267,72 @@ POST_ACTIONS = ("none", "quit", "sleep", "shutdown")
 SPEED_PROFILES = ("fast", "balanced")
 
 # --- PALET: her renk (açık, koyu) çifti; ctk appearance moduyla otomatik değişir ---
-BG          = ("#f4f5f7", "#0a0a0d")
-SIDEBAR     = ("#ffffff", "#0f0f14")
-SURFACE     = ("#ffffff", "#121218")
-SURFACE2    = ("#e7eaf0", "#17171f")
-HOVER       = ("#dadfe7", "#1d1d27")
-BORDER      = ("#c4ccd8", "#242430")
-BORDER_SOFT = ("#ccd4df", "#1b1b24")
-TEXT        = ("#16181d", "#f3f4f6")
-MUTED       = ("#5b6472", "#8a93a3")
-FAINT       = ("#8b94a3", "#45454f")
+BG          = ("#f5f7fa", "#202022")
+SIDEBAR     = ("#edf0f5", "#29292c")
+SURFACE     = ("#ffffff", "#313135")
+SURFACE2    = ("#e2e7ee", "#3c3c41")
+HOVER       = ("#d8e3f0", "#48484f")
+BORDER      = ("#b9c5d3", "#66666e")
+BORDER_SOFT = ("#d2dce7", "#4b4b53")
+TEXT        = ("#202733", "#f7f8fa")
+MUTED       = ("#4d5b6c", "#c9cbd2")
+FAINT       = ("#5c6a7c", "#b5b8c4")
+ACCENT_SOFT = ("#e8edf4", "#404047")
+SEGMENT     = ("#ffffff", "#5a5a63")
+GLASS       = ("#ffffff", "#343438")
+GLASS_EDGE  = ("#c5d3e4", "#62626e")
+ON_ACCENT   = ("#ffffff", "#1c1c1e")
 
-GREEN = "#16a34a"
-RED   = "#f43f5e"
-WARN  = "#d97706"
-PURPLE = "#8b5cf6"
+GREEN = ("#287348", "#72c792")
+RED   = "#c83c3c"
+WARN  = ("#946519", "#dbb56c")
+PURPLE = ("#77599b", "#bda2dc")
 # Editör işaret zeminleri (açık, koyu): anlaşmazlık / düşük güven / doğrulanamadı
 FLAG_DIS = ("#fde68a", "#4a3b12")
 FLAG_LOW = ("#fecaca", "#4c1d24")
 FLAG_UNV = ("#ddd6fe", "#33264d")
 # Günlük paneli: açık modda yumuşak gri, koyu modda gömülü terminal koyusu
-TERM_BG    = ("#e9edf3", "#0c0c10")
-TERM_TXT   = ("#15803d", "#9af2bd")
-TERM_PANEL = ("#dfe4ec", "#13131a")   # panel başlık/temizle düğmesi zemini
+TERM_BG    = ("#eef2f7", "#262629")
+TERM_TXT   = ("#465568", "#c9cbd2")
+TERM_PANEL = ("#e2e7ee", "#3c3c41")
 
 FONT_UI   = "Segoe UI"
 FONT_MONO = "Consolas"
 
 ACCENTS = {
-    "indigo":  ("#6366f1", "#4f46e5"),
-    "emerald": ("#10b981", "#059669"),
-    "sky":     ("#0ea5e9", "#0284c7"),
-    "rose":    ("#fb7185", "#f43f5e"),
+    # Dolgu ve hover için (açık, koyu). Koyu moddaki pastel dolguların
+    # üzerinde koyu metin kullanılır; zeminler her palette nötr kalır.
+    "graphite": (("#29313c", "#edf1f7"), ("#414c5b", "#ffffff")),
+    "sky":      (("#0065d1", "#69adff"), ("#0055b0", "#91c3ff")),
+    "emerald":  (("#187457", "#62c5a3"), ("#105b43", "#89d8bd")),
+    "rose":     (("#b82f59", "#ff92af"), ("#9a2449", "#ffb0c5")),
+    "indigo":   (("#7744bf", "#bb99ff"), ("#60319e", "#d1baff")),
 }
+
+CARD_PALETTE = {"surface": SURFACE, "border": BORDER_SOFT, "text": TEXT, "muted": MUTED}
 
 # --- DİL METİNLERİ (TR / EN) ---
 L = {
     "tr": {
+        "look_light": "İnci", "look_dark": "Grafit",
+        "accent_graphite": "Grafit", "accent_sky": "Mavi", "accent_emerald": "Adaçayı",
+        "accent_rose": "Gül", "accent_indigo": "Lavanta",
+        "palette_hint": "Seçtiğiniz renk düğmelere ve seçimlere uygulanır.",
+        "workspace": "Altyazı stüdyosu",
+        "workspace_hint": "Medyanızı ekleyin, motorunuzu seçin, altyazınız hazır olsun.",
+        "brand_hint": "Sesten altyazıya.",
+        "tab_engine": "Motor", "tab_output": "Çıktı", "tab_look": "Görünüm",
+        "media_step": "01  /  MEDYA DOSYALARI", "engine_step": "02  /  İŞLEME MOTORU",
+        "drop_hint": "Video ve ses dosyaları · Toplu işleme",
+        "drop_formats": "MP4 · MKV · MOV · MP3 · WAV ve daha fazlası",
+        "card_whisper": "Whisper", "card_whisper_parakeet": "Whisper + Parakeet",
+        "card_hybrid": "Hibrit + Gemini", "card_gemini": "Gemini Transcribe",
+        "desc_whisper": "Tek motor · Yerel işleme",
+        "desc_whisper_parakeet": "İki yerel motor · Metin karşılaştırma",
+        "desc_hybrid": "İki yerel motor + bulut hakem · TR çeviri",
+        "desc_gemini": "Bulut üzerinden transkripsiyon",
         "subtitle": "Yapay Zeka Destekli Altyazı Motoru",
-        "model": "MODEL", "language": "ARAYÜZ DİLİ", "theme": "TEMA", "appearance": "GÖRÜNÜM",
+        "model": "MODEL", "language": "ARAYÜZ DİLİ", "theme": "VURGU RENGİ", "appearance": "GÖRÜNÜM",
         "src_lang": "KAYNAK DİL", "auto": "Otomatik (algıla)",
         "out_format": "ÇIKTI BİÇİMİ", "out_folder": "ÇIKTI KLASÖRÜ",
         "out_same": "Kaynak dosyanın yanı", "choose_folder": "Klasör Seç",
@@ -312,7 +341,7 @@ L = {
         "char_limit": "Karakter sınırı", "min_dur": "Min. süre", "sec": "sn",
         "sentence_only": "Cümle sonunda böl",
         "edit_before": "Kaydetmeden önce düzenle",
-        "drop_title": "Videoları buraya sürükleyip bırakın",
+        "drop_title": "Medyanızı buraya sürükleyin",
         "or": "veya", "browse": "Dosya Seç", "add_files": "Dosya Ekle",
         "queue": "SIRA", "files_n": "{} dosya", "clear_all": "Tümünü temizle",
         "start": "Altyazı Oluştur", "start_n": "Altyazı Oluştur ({})",
@@ -479,8 +508,25 @@ L = {
         "mw_not_ready": "Bu video için hazır satır yok — önce 'Başlat' ile ses/Whisper/Parakeet aşamalarını tamamlayın.",
     },
     "en": {
+        "look_light": "Pearl", "look_dark": "Graphite",
+        "accent_graphite": "Graphite", "accent_sky": "Blue", "accent_emerald": "Sage",
+        "accent_rose": "Rose", "accent_indigo": "Lavender",
+        "palette_hint": "Your accent colors buttons and selections.",
+        "workspace": "Subtitle studio",
+        "workspace_hint": "Add your media, choose an engine, create your subtitles.",
+        "brand_hint": "From sound to subtitles.",
+        "tab_engine": "Engine", "tab_output": "Output", "tab_look": "Style",
+        "media_step": "01  /  MEDIA FILES", "engine_step": "02  /  PROCESSING ENGINE",
+        "drop_hint": "Video and audio files · Batch processing",
+        "drop_formats": "MP4 · MKV · MOV · MP3 · WAV and more",
+        "card_whisper": "Whisper", "card_whisper_parakeet": "Whisper + Parakeet",
+        "card_hybrid": "Hybrid + Gemini", "card_gemini": "Gemini Transcribe",
+        "desc_whisper": "Single engine · Local processing",
+        "desc_whisper_parakeet": "Two local engines · Compare transcripts",
+        "desc_hybrid": "Two local engines + cloud judge · TR translation",
+        "desc_gemini": "Cloud audio transcription",
         "subtitle": "AI-Powered Subtitle Engine",
-        "model": "MODEL", "language": "INTERFACE", "theme": "THEME", "appearance": "APPEARANCE",
+        "model": "MODEL", "language": "INTERFACE", "theme": "ACCENT COLOR", "appearance": "APPEARANCE",
         "src_lang": "SOURCE LANGUAGE", "auto": "Auto (detect)",
         "out_format": "OUTPUT FORMAT", "out_folder": "OUTPUT FOLDER",
         "out_same": "Next to source file", "choose_folder": "Choose Folder",
@@ -489,7 +535,7 @@ L = {
         "char_limit": "Character limit", "min_dur": "Min. duration", "sec": "s",
         "sentence_only": "Split at sentence end",
         "edit_before": "Edit before saving",
-        "drop_title": "Drag & drop your videos here",
+        "drop_title": "Drop your media here",
         "or": "or", "browse": "Choose Files", "add_files": "Add Files",
         "queue": "QUEUE", "files_n": "{} files", "clear_all": "Clear all",
         "start": "Generate Subtitles", "start_n": "Generate Subtitles ({})",
@@ -1345,6 +1391,7 @@ class _FitScrollFrame(ctk.CTkFrame):
 
     def __init__(self, master, bg):
         super().__init__(master, fg_color=bg, corner_radius=0, border_width=0)
+        self._frame_canvas = self._canvas
         self._bg = bg
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
@@ -1357,6 +1404,11 @@ class _FitScrollFrame(ctk.CTkFrame):
         self._sb.grid(row=0, column=1, sticky="ns", padx=(0, 2))
         self._sb.grid_remove()
         self._canvas.configure(yscrollcommand=self._sb.set)
+        self._hsb = ctk.CTkScrollbar(self, orientation="horizontal", command=self._canvas.xview,
+                                     button_color=BORDER, button_hover_color=MUTED)
+        self._hsb.grid(row=1, column=0, sticky="ew")
+        self._hsb.grid_remove()
+        self._canvas.configure(xscrollcommand=self._hsb.set)
         self.inner = ctk.CTkFrame(self._canvas, fg_color=bg, corner_radius=0, border_width=0)
         self._item = self._canvas.create_window(0, 0, window=self.inner, anchor="nw")
         self.scrolling = False
@@ -1366,18 +1418,38 @@ class _FitScrollFrame(ctk.CTkFrame):
         self._canvas.bind_all("<MouseWheel>", self._on_wheel, add="+")
         self.after(self.WATCH_MS, self._watch)
 
+    def _draw(self, no_color_updates=False):
+        # CTk'nin çizim motoru kendi canvas'ına aittir; kaydırma canvas'ına değil.
+        # Özellikle tema geçişi/kapanış sırasındaki Configure olaylarında bu
+        # ikisini ayırmak, yok edilmiş CTk canvas'ına çizim yapılmasını önler.
+        if not hasattr(self, "_frame_canvas"):
+            return super()._draw(no_color_updates)
+        viewport = self._canvas
+        try:
+            self._canvas = self._frame_canvas
+            super()._draw(no_color_updates)
+        finally:
+            self._canvas = viewport
+
     def sync(self):
         cw, ch = self._canvas.winfo_width(), self._canvas.winfo_height()
         need = self.inner.winfo_reqheight()
         if cw <= 1 or ch <= 1:
             return
-        state = (cw, ch, need)
+        need_w = self.inner.winfo_reqwidth()
+        state = (cw, ch, need, need_w)
         if state == self._last:
             return
         self._last = state
         h = max(ch, need)
-        self._canvas.itemconfigure(self._item, width=cw, height=h)
-        self._canvas.configure(scrollregion=(0, 0, cw, h))
+        w = max(cw, need_w)
+        self._canvas.itemconfigure(self._item, width=w, height=h)
+        self._canvas.configure(scrollregion=(0, 0, w, h))
+        if need_w > cw + 1:
+            self._hsb.grid()
+        else:
+            self._hsb.grid_remove()
+            self._canvas.xview_moveto(0)
         overflow = need > ch + 1
         if overflow != self.scrolling:
             self.scrolling = overflow
@@ -1469,8 +1541,8 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self._active_editor = None      # açık düzenleyiciyi dışarıdan iptal etmek için
         self._cur_src_code = None       # None -> otomatik algıla
         self.lang = "tr"
-        self._accent_name = "indigo"
-        self.accent, self.accent_hover = ACCENTS["indigo"]
+        self._accent_name = "graphite"
+        self.accent, self.accent_hover = ACCENTS["graphite"]
         self._pb_mode = None
         self._status_key = "st_ready"
         self._status_color = GREEN
@@ -1482,7 +1554,7 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         sys.stdout = _LogStream(self.log_queue)
         sys.stderr = _LogStream(self.log_queue)
 
-        ctk.set_appearance_mode("dark")
+        ctk.set_appearance_mode("light")
         self.title("AutoSRT")
         self.configure(fg_color=BG)
         self._set_window_icon()
@@ -1494,8 +1566,9 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self._build_main()
         self._rebuild_engine_seg()
         self._apply_engine_visibility()
-        self._apply_accent(*ACCENTS["indigo"])
+        self._apply_accent(*ACCENTS["graphite"])
         self._load_settings()           # kayıtlı tercihleri uygula (varsa)
+        self._style_segments()
         self._logt("ready_msg")
         self._update_primary()
 
@@ -1560,6 +1633,7 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
 
     def _reveal_main(self):
         self.deiconify()
+        self._style_titlebar(self)
         self.lift()
         try:
             self.focus_force()
@@ -1590,6 +1664,29 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
                 win.iconbitmap(self._ico_path)
         except Exception:
             pass
+        self._style_titlebar(win)
+
+    def _style_titlebar(self, win):
+        """Windows 11 başlık çubuğunu palete uyarla; yerel pencere davranışı korunur."""
+        if sys.platform != "win32" or sys.getwindowsversion().build < 22000:
+            return
+        try:
+            import ctypes
+            from ctypes import wintypes
+            # https://learn.microsoft.com/windows/win32/api/dwmapi/ne-dwmapi-dwmwindowattribute
+            set_attr = ctypes.windll.dwmapi.DwmSetWindowAttribute
+            set_attr.argtypes = (wintypes.HWND, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD)
+            set_attr.restype = ctypes.c_long
+            hwnd = int(win.wm_frame(), 16)
+            dark = ctk.get_appearance_mode().lower() == "dark"
+            flag = wintypes.BOOL(dark)
+            set_attr(hwnd, 20, ctypes.byref(flag), ctypes.sizeof(flag))
+            for attr, pair in ((34, BORDER_SOFT), (35, BG), (36, TEXT)):
+                rgb = pair[int(dark)].lstrip("#")
+                color = wintypes.DWORD(int(rgb[4:6] + rgb[2:4] + rgb[0:2], 16))
+                set_attr(hwnd, attr, ctypes.byref(color), ctypes.sizeof(color))
+        except (AttributeError, OSError, tkinter.TclError):
+            pass
 
     def t(self, key, *args):
         s = L[self.lang].get(key, key)
@@ -1597,37 +1694,78 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
 
     # ===================================================================== KENAR ÇUBUĞU
     def _build_sidebar(self):
-        # Kaydırılabilir kenar çubuğu: her ekran yüksekliği/DPI'da tüm kontroller erişilir
-        sb = ctk.CTkScrollableFrame(self, width=262, corner_radius=0, fg_color=SIDEBAR,
-                                    scrollbar_button_color=BORDER,
-                                    scrollbar_button_hover_color=MUTED)
-        sb.grid(row=0, column=0, sticky="nsew")
-        sb.grid_columnconfigure(0, weight=1)
-        r = 0
+        shell = ctk.CTkFrame(self, width=292, corner_radius=0, fg_color=SIDEBAR)
+        shell.grid(row=0, column=0, sticky="nsew")
+        shell.grid_propagate(False)
+        shell.grid_columnconfigure(0, weight=1)
+        shell.grid_rowconfigure(3, weight=1)
 
         # Marka
-        brand = ctk.CTkFrame(sb, fg_color="transparent")
-        brand.grid(row=r, column=0, sticky="ew", padx=20, pady=(20, 2)); r += 1
-        self.logo_dot = ctk.CTkLabel(brand, text="◆", font=ctk.CTkFont(FONT_UI, 22))
-        self.logo_dot.pack(side="left", padx=(0, 10))
+        brand = ctk.CTkFrame(shell, fg_color="transparent")
+        brand.grid(row=0, column=0, sticky="ew", padx=22, pady=(26, 0))
+        with Image.open(os.path.join(APP_DIR, "icon.png")) as source:
+            self._brand_image = ctk.CTkImage(source.convert("RGBA"), size=(44, 44))
+        self.logo_dot = ctk.CTkLabel(brand, text="", image=self._brand_image,
+                                      width=44, height=44, fg_color="transparent")
+        self.logo_dot.pack(side="left", padx=(0, 12))
         ctk.CTkLabel(brand, text="AutoSRT",
                      font=ctk.CTkFont(FONT_UI, 22, weight="bold"),
                      text_color=TEXT).pack(side="left")
-        self.brand_rule = ctk.CTkFrame(sb, height=2, corner_radius=2, fg_color=self.accent)
-        self.brand_rule.grid(row=r, column=0, sticky="ew", padx=20, pady=(2, 16)); r += 1
+        self.brand_hint = ctk.CTkLabel(shell, text=self.t("brand_hint"), text_color=MUTED,
+                                       font=ctk.CTkFont(FONT_UI, 12), anchor="w")
+        self.brand_hint.grid(row=1, column=0, sticky="ew", padx=24, pady=(6, 18))
+        self._settings_tab = "engine"
+        self.settings_tabs = ctk.CTkSegmentedButton(
+            shell, values=[self.t("tab_" + k) for k in ("engine", "output", "look")],
+            height=36, corner_radius=9, font=ctk.CTkFont(FONT_UI, 12),
+            fg_color=SURFACE2, unselected_color=SURFACE2, unselected_hover_color=HOVER,
+            text_color=TEXT, command=self._on_settings_tab)
+        self.settings_tabs.grid(row=2, column=0, sticky="ew", padx=18, pady=(0, 18))
+        self._settings_panels = {}
+        for key in ("engine", "output", "look"):
+            panel = ctk.CTkScrollableFrame(shell, width=260, corner_radius=0, fg_color=SIDEBAR,
+                                            scrollbar_button_color=BORDER,
+                                            scrollbar_button_hover_color=MUTED)
+            panel.grid(row=3, column=0, sticky="nsew")
+            panel.grid_columnconfigure(0, weight=1)
+            panel.grid_remove()
+            self._settings_panels[key] = panel
+        sb = self._settings_panels["engine"]
+        r = 0
 
         # (MOTOR seçimi ana ekrana taşındı — bkz. _build_main)
 
         # MODEL (Whisper kullanan modlarda görünür)
         self.cap_model = self._caption(sb, r, "model"); r += 1
         self.model_var = ctk.StringVar(value=MODEL_SIZE)
-        self.model_menu = ctk.CTkOptionMenu(
+        self.model_menu = OptionMenu(
             sb, values=MODEL_SIZES, variable=self.model_var,
             height=36, corner_radius=10, fg_color=SURFACE2, button_color=self.accent,
             button_hover_color=self.accent_hover, dropdown_fg_color=SURFACE2,
             text_color=TEXT, dropdown_text_color=TEXT,
             font=ctk.CTkFont(FONT_UI, 13), dropdown_font=ctk.CTkFont(FONT_UI, 13))
         self.model_menu.grid(row=r, column=0, sticky="ew", padx=20, pady=(2, 14)); r += 1
+
+        # KAYNAK DİL
+        self.cap_src = self._caption(sb, r, "src_lang"); r += 1
+        self.src_var = ctk.StringVar(value=self.t("auto"))
+        self.src_menu = OptionMenu(
+            sb, values=[self.t("auto")], variable=self.src_var,
+            command=self._on_src_select,
+            height=36, corner_radius=10, fg_color=SURFACE2, button_color=self.accent,
+            button_hover_color=self.accent_hover, dropdown_fg_color=SURFACE2,
+            text_color=TEXT, dropdown_text_color=TEXT,
+            font=ctk.CTkFont(FONT_UI, 13), dropdown_font=ctk.CTkFont(FONT_UI, 13))
+        self.src_menu.grid(row=r, column=0, sticky="ew", padx=20, pady=(2, 14)); r += 1
+        self._rebuild_src_menu()
+
+        # HIZ PROFİLİ (Hızlı = beam 5, Dengeli = beam 10 / varsayılan)
+        self.cap_speed = self._caption(sb, r, "speed_profile"); r += 1
+        self.speed_seg = ctk.CTkSegmentedButton(
+            sb, values=[self.t("speed_fast"), self.t("speed_balanced")],
+            command=self._on_speed, height=34, font=ctk.CTkFont(FONT_UI, 12))
+        self.speed_seg.grid(row=r, column=0, sticky="ew", padx=20, pady=(2, 14)); r += 1
+        self._rebuild_speed_seg()
 
         # GEMINI API ANAHTARI (yalnız Gemini seçiliyken görünür)
         self.cap_key = self._caption(sb, r, "api_key"); r += 1
@@ -1652,7 +1790,7 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         # Açılır liste + yazılabilir: bilinen ücretsiz modeller listede, yeni çıkan
         # bir model adı da elle yazılabilir.
         self.gem_model_var = ctk.StringVar(value=GJ.DEFAULT_MODEL)
-        self.gem_model_box = ctk.CTkComboBox(
+        self.gem_model_box = ComboBox(
             jf, values=list(GJ.GEMINI_MODELS), variable=self.gem_model_var,
             height=32, corner_radius=10, fg_color=SURFACE2, border_color=BORDER,
             button_color=self.accent, button_hover_color=self.accent_hover,
@@ -1687,28 +1825,9 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
                                self.chunk_cap.master, self.mchunk_cap.master,
                                self.manual_switch, self.hybrid_note)
 
-        # KAYNAK DİL
-        self.cap_src = self._caption(sb, r, "src_lang"); r += 1
-        self.src_var = ctk.StringVar(value=self.t("auto"))
-        self.src_menu = ctk.CTkOptionMenu(
-            sb, values=[self.t("auto")], variable=self.src_var,
-            command=self._on_src_select,
-            height=36, corner_radius=10, fg_color=SURFACE2, button_color=self.accent,
-            button_hover_color=self.accent_hover, dropdown_fg_color=SURFACE2,
-            text_color=TEXT, dropdown_text_color=TEXT,
-            font=ctk.CTkFont(FONT_UI, 13), dropdown_font=ctk.CTkFont(FONT_UI, 13))
-        self.src_menu.grid(row=r, column=0, sticky="ew", padx=20, pady=(2, 14)); r += 1
-        self._rebuild_src_menu()
-
-        # HIZ PROFİLİ (Hızlı = beam 5, Dengeli = beam 10 / varsayılan)
-        self.cap_speed = self._caption(sb, r, "speed_profile"); r += 1
-        self.speed_seg = ctk.CTkSegmentedButton(
-            sb, values=[self.t("speed_fast"), self.t("speed_balanced")],
-            command=self._on_speed, height=34, font=ctk.CTkFont(FONT_UI, 12))
-        self.speed_seg.grid(row=r, column=0, sticky="ew", padx=20, pady=(2, 14)); r += 1
-        self._rebuild_speed_seg()
-
         # ALTYAZI AYARLARI
+        sb = self._settings_panels["output"]
+        r = 0
         self.cap_sub = self._caption(sb, r, "sub_group"); r += 1
         self.char_cap, self.char_val, self.char_slider = self._slider_block(
             sb, r, "char_limit", 20, 90, 70, 45, lambda v: str(int(float(v)))); r += 1
@@ -1765,7 +1884,7 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         # İŞLEM SONRASI (batch bitince: kapat / uyut / kapan)
         self.cap_post = self._caption(sb, r, "post_action"); r += 1
         self.post_var = ctk.StringVar(value=self.t("post_none"))
-        self.post_menu = ctk.CTkOptionMenu(
+        self.post_menu = OptionMenu(
             sb, values=[self.t("post_none")], variable=self.post_var,
             command=self._on_post, height=36, corner_radius=10, fg_color=SURFACE2,
             button_color=self.accent, button_hover_color=self.accent_hover,
@@ -1783,6 +1902,8 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.term_entry.grid(row=r, column=0, sticky="ew", padx=20, pady=(2, 14)); r += 1
 
         # ARAYÜZ DİLİ
+        sb = self._settings_panels["look"]
+        r = 0
         self.cap_lang = self._caption(sb, r, "language"); r += 1
         lang_row = ctk.CTkFrame(sb, fg_color="transparent")
         lang_row.grid(row=r, column=0, sticky="ew", padx=20, pady=(2, 14)); r += 1
@@ -1798,27 +1919,32 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         # GÖRÜNÜM (açık/koyu)
         self.cap_appear = self._caption(sb, r, "appearance"); r += 1
         self.appear_seg = ctk.CTkSegmentedButton(
-            sb, values=["☾", "☀"], command=self._set_mode, height=32,
-            font=ctk.CTkFont(FONT_UI, 15))
-        self.appear_seg.set("☾")
+            sb, values=[self.t("look_light"), self.t("look_dark")], command=self._set_mode,
+            height=36, corner_radius=9, font=ctk.CTkFont(FONT_UI, 13))
+        self.appear_seg.set(self.t("look_light"))
         self.appear_seg.grid(row=r, column=0, sticky="ew", padx=20, pady=(2, 14)); r += 1
 
         # TEMA (vurgu rengi)
         self.cap_theme = self._caption(sb, r, "theme"); r += 1
         sw = ctk.CTkFrame(sb, fg_color="transparent")
-        sw.grid(row=r, column=0, sticky="w", padx=20, pady=(2, 14)); r += 1
+        sw.grid(row=r, column=0, sticky="ew", padx=18, pady=(2, 8)); r += 1
+        sw.grid_columnconfigure(0, weight=1)
         self.swatches = {}
-        for name, (col, _) in ACCENTS.items():
-            b = ctk.CTkButton(sw, text="", width=26, height=26, corner_radius=13,
-                              fg_color=col, hover_color=col, border_width=0,
-                              command=lambda n=name: self._set_accent(n))
-            b.pack(side="left", padx=(0, 10))
+        for i, (name, (col, _)) in enumerate(ACCENTS.items()):
+            b = ChoiceCard(sw, compact=True, width=210, height=40, palette=CARD_PALETTE,
+                           title=self.t("accent_" + name), accent=col, ink=ON_ACCENT,
+                           command=lambda n=name: self._set_accent(n))
+            b.grid(row=i, column=0, sticky="ew", pady=(0, 5))
             self.swatches[name] = b
+        self.palette_hint = ctk.CTkLabel(sb, text=self.t("palette_hint"), anchor="w",
+                                         wraplength=210, justify="left",
+                                         text_color=MUTED, font=ctk.CTkFont(FONT_UI, 12))
+        self.palette_hint.grid(row=r, column=0, sticky="ew", padx=20, pady=(0, 16)); r += 1
 
-        ctk.CTkFrame(sb, height=1, fg_color=BORDER).grid(
-            row=r, column=0, sticky="ew", padx=20, pady=(2, 12)); r += 1
-        dev = ctk.CTkFrame(sb, fg_color="transparent")
-        dev.grid(row=r, column=0, sticky="ew", padx=20, pady=(0, 16)); r += 1
+        ctk.CTkFrame(shell, height=1, fg_color=BORDER_SOFT).grid(
+            row=4, column=0, sticky="ew", padx=22, pady=(12, 10))
+        dev = ctk.CTkFrame(shell, fg_color="transparent")
+        dev.grid(row=5, column=0, sticky="ew", padx=22, pady=(0, 18))
         self.dev_dot = ctk.CTkLabel(dev, text="●", text_color=MUTED,
                                     font=ctk.CTkFont(FONT_UI, 12))
         self.dev_dot.pack(side="left", padx=(0, 8))
@@ -1827,10 +1953,30 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.dev_lbl.pack(side="left")
         ctk.CTkLabel(dev, text="v1.7", text_color=FAINT,
                      font=ctk.CTkFont(FONT_UI, 11)).pack(side="right")
+        self._show_settings_tab()
+
+    def _on_settings_tab(self, value):
+        self._settings_tab = next(k for k in self._settings_panels if self.t("tab_" + k) == value)
+        self._show_settings_tab()
+
+    def _show_settings_tab(self):
+        for key, panel in self._settings_panels.items():
+            panel.grid() if key == self._settings_tab else panel.grid_remove()
+        self.settings_tabs.set(self.t("tab_" + self._settings_tab))
+        self._style_segments()
+
+    def _style_segments(self):
+        # CTkSegmentedButton tek metin rengi sunar. Seçili/seçili olmayan
+        # düğmelerin kontrastını her seçim ve dil değişiminde ayrı güncelle.
+        for name in ("settings_tabs", "speed_seg", "appear_seg"):
+            seg = getattr(self, name, None)
+            if seg is not None:
+                for value, button in seg._buttons_dict.items():
+                    button.configure(text_color=TEXT if value == seg.get() else MUTED)
 
     def _caption(self, parent, row, key):
         lbl = ctk.CTkLabel(parent, text=self.t(key),
-                           font=ctk.CTkFont(FONT_UI, 11, weight="bold"), text_color=MUTED)
+                           font=ctk.CTkFont(FONT_UI, 12, weight="bold"), text_color=MUTED)
         lbl.grid(row=row, column=0, sticky="w", padx=20, pady=(0, 6))
         return lbl
 
@@ -1870,13 +2016,15 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
 
     # ----------------------------------------------------- motor seçimi
     def _rebuild_engine_seg(self):
-        """Motor modu segmentini kurar; etiketler arayüz diline göre güncellenir."""
-        labels = [self.t("mode_" + k) for k in ENGINES]
+        """Seçim kartlarını, motor anahtarlarını değiştirmeden günceller."""
         self._engine_labels = {self.t("mode_" + k): k for k in ENGINES}
-        self.engine_seg.configure(values=labels)
-        self.engine_seg.set(self.t("mode_" + self._engine))
+        for key, card in self.engine_cards.items():
+            card.configure(selected=key == self._engine, accent=self.accent,
+                           title=self.t("card_" + key), description=self.t("desc_" + key))
 
     def _on_engine(self, value):
+        if self.is_running:
+            return
         key = self._engine_labels.get(value, DEFAULT_MODE)
         needs_genai = key in ("gemini", "hybrid")
         if needs_genai and not GeminiEngine.available():
@@ -1948,6 +2096,7 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
 
     def _on_speed(self, value):
         self._speed = self._speed_labels.get(value, "balanced")
+        self._style_segments()
 
     def _rebuild_post_menu(self):
         """İşlem sonrası menüsünü kurar; etiketler arayüz diline göre güncellenir."""
@@ -1966,50 +2115,62 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.main_scroll = _FitScrollFrame(self, BG)
         self.main_scroll.grid(row=0, column=1, sticky="nsew")
         main = ctk.CTkFrame(self.main_scroll.inner, fg_color="transparent")
-        main.pack(fill="both", expand=True, padx=36, pady=(18, 20))
+        main.pack(fill="both", expand=True, padx=28, pady=16)
         main.grid_columnconfigure(0, weight=1)
-        main.grid_rowconfigure(7, weight=1, minsize=150)
+        main.grid_rowconfigure(7, weight=1, minsize=90)
 
         # Başlık: ad + alt başlık TEK satırda (dikey alan ana içeriğe kalsın)
         head = ctk.CTkFrame(main, fg_color="transparent")
-        head.grid(row=0, column=0, sticky="ew", pady=(0, 14))
-        ctk.CTkLabel(head, text="AutoSRT",
-                     font=ctk.CTkFont(FONT_UI, 26, weight="bold"),
-                     text_color=TEXT).pack(side="left", anchor="s")
-        self.subtitle_lbl = ctk.CTkLabel(head, text=self.t("subtitle"),
+        head.grid(row=0, column=0, sticky="ew", pady=(0, 6))
+        self.workspace_title = ctk.CTkLabel(head, text=self.t("workspace"),
+                                             font=ctk.CTkFont(FONT_UI, 28, weight="bold"),
+                                             text_color=TEXT)
+        self.workspace_title.pack(anchor="w")
+        self.subtitle_lbl = ctk.CTkLabel(head, text=self.t("workspace_hint"),
                                          font=ctk.CTkFont(FONT_UI, 13), text_color=MUTED)
-        self.subtitle_lbl.pack(side="left", anchor="s", padx=(14, 0), pady=(0, 4))
+        self.subtitle_lbl.pack(anchor="w", pady=(2, 4))
+        self.media_caption = ctk.CTkLabel(head, text=self.t("media_step"), height=20,
+                                           font=ctk.CTkFont(FONT_UI, 11, weight="bold"),
+                                           text_color=FAINT)
+        self.media_caption.pack(anchor="w")
 
         # Sürükle-bırak kartı: boş kuyrukta büyük hedef, dosya varken ince şerit
         # (bkz. _set_drop_compact). Yükseklikler içeriğe göre hesaplıdır — kesilmez.
-        self.drop_frame = ctk.CTkFrame(main, height=self.DROP_FULL_H, corner_radius=18,
-                                       border_width=2, border_color=BORDER_SOFT,
-                                       fg_color=SURFACE)
+        self.drop_frame = SmoothFrame(main, glass=True, height=self.DROP_FULL_H, corner_radius=20,
+                                       border_width=1, border_color=GLASS_EDGE, fg_color=GLASS)
         self.drop_frame.grid(row=1, column=0, sticky="ew")
         self.drop_frame.grid_propagate(False)
-        self.drop_frame.grid_columnconfigure(0, weight=1)
+        self.drop_frame.grid_columnconfigure(1, weight=1)
         self.drop_frame.grid_rowconfigure((0, 5), weight=1)
 
-        self.badge = ctk.CTkFrame(self.drop_frame, width=48, height=48, corner_radius=24,
-                                  fg_color=SURFACE2)
+        self.badge = SmoothFrame(self.drop_frame, width=52, height=52, corner_radius=15,
+                                  fg_color=SURFACE, border_width=1.3, border_color=BORDER)
         self.badge.grid_propagate(False)
-        self.drop_icon = ctk.CTkLabel(self.badge, text="↓",
-                                      font=ctk.CTkFont(FONT_UI, 22, weight="bold"))
+        self._drop_images = {
+            name: ctk.CTkImage(symbol(name, 112, TEXT[0]), symbol(name, 112, TEXT[1]), size=(28, 28))
+            for name in ("upload", "check")
+        }
+        self.drop_icon = ctk.CTkLabel(self.badge, text="", width=28, height=28,
+                                      image=self._drop_images["upload"])
         self.drop_icon.place(relx=0.5, rely=0.5, anchor="center")
 
         self.drop_title = ctk.CTkLabel(self.drop_frame, text=self.t("drop_title"),
                                        font=ctk.CTkFont(FONT_UI, 17, weight="bold"),
                                        text_color=TEXT)
-        self.or_lbl = ctk.CTkLabel(self.drop_frame, text=f"—  {self.t('or')}  —",
-                                   font=ctk.CTkFont(FONT_UI, 12), text_color=FAINT)
+        self.or_lbl = ctk.CTkLabel(self.drop_frame, text=self.t("drop_hint"), height=20,
+                                   font=ctk.CTkFont(FONT_UI, 13), text_color=MUTED)
+        self.formats_lbl = ctk.CTkLabel(self.drop_frame, text=self.t("drop_formats"), height=18,
+                                        font=ctk.CTkFont(FONT_UI, 12), text_color=MUTED)
         self.browse_btn = ctk.CTkButton(self.drop_frame, text=self.t("browse"),
-                                        width=160, height=34, corner_radius=10,
+                                        width=148, height=34, corner_radius=17,
+                                        text_color=ON_ACCENT,
                                         font=ctk.CTkFont(FONT_UI, 13, weight="bold"),
                                         command=self.browse_file)
         self._drop_compact = None
         self._set_drop_compact(False)
 
-        for w in (self.drop_frame, self.badge, self.drop_icon, self.drop_title):
+        for w in (self.drop_frame, self.badge, self.drop_icon, self.drop_title,
+                  self.or_lbl, self.formats_lbl, self.browse_btn):
             w.drop_target_register(DND_FILES)
             w.dnd_bind("<<Drop>>", self.on_drop)
             w.dnd_bind("<<DropEnter>>", self._on_drag_enter)
@@ -2017,8 +2178,8 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
 
         # Dosya sırası (kuyruk) — kart yüksekliği grid_propagate(False) ile sabitlenir,
         # böylece tek/az dosyada şişmez ve artan boşluk Günlük paneline kalır.
-        self.files_card = ctk.CTkFrame(main, fg_color=SURFACE2, corner_radius=12,
-                                       border_width=1, border_color=BORDER, height=96)
+        self.files_card = ctk.CTkFrame(main, fg_color=SURFACE, corner_radius=14,
+                                       border_width=1, border_color=BORDER_SOFT, height=96)
         self.files_card.grid(row=2, column=0, sticky="ew", pady=(14, 0))
         self.files_card.grid_columnconfigure(0, weight=1)
         self.files_card.grid_rowconfigure(1, weight=1)
@@ -2047,28 +2208,33 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
 
         # MOTOR modu (ana ekranda): Sadece Whisper / +Parakeet / +Gemini hakem / Gemini Transcribe
         moderow = ctk.CTkFrame(main, fg_color="transparent")
-        moderow.grid(row=3, column=0, sticky="ew", pady=(14, 0))
-        moderow.grid_columnconfigure(1, weight=1)
-        self.cap_engine = ctk.CTkLabel(moderow, text=self.t("engine"),
+        moderow.grid(row=3, column=0, sticky="ew", pady=(10, 0))
+        moderow.grid_columnconfigure((0, 1), weight=1, uniform="engines")
+        self.cap_engine = ctk.CTkLabel(moderow, text=self.t("engine_step"),
                                        font=ctk.CTkFont(FONT_UI, 11, weight="bold"),
-                                       text_color=MUTED)
-        self.cap_engine.grid(row=0, column=0, sticky="w", padx=(0, 12))
-        self.engine_seg = ctk.CTkSegmentedButton(
-            moderow, values=[self.t("mode_" + k) for k in ENGINES],
-            command=self._on_engine, height=34, font=ctk.CTkFont(FONT_UI, 12))
-        self.engine_seg.grid(row=0, column=1, sticky="ew")
+                                       text_color=FAINT)
+        self.cap_engine.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 5))
+        self.engine_cards = {}
+        for i, key in enumerate(ENGINES):
+            card = ChoiceCard(moderow, width=240, height=76, palette=CARD_PALETTE,
+                              title=self.t("card_" + key), description=self.t("desc_" + key),
+                              accent=self.accent, ink=ON_ACCENT,
+                              command=lambda k=key: self._on_engine(self.t("mode_" + k)))
+            card.grid(row=1 + i // 2, column=i % 2, sticky="nsew",
+                      padx=(0, 5) if i % 2 == 0 else (5, 0), pady=(0, 8))
+            self.engine_cards[key] = card
 
         # Eylem butonları
         actions = ctk.CTkFrame(main, fg_color="transparent")
-        actions.grid(row=4, column=0, sticky="ew", pady=(14, 0))
+        actions.grid(row=4, column=0, sticky="ew", pady=(4, 0))
         actions.grid_columnconfigure(0, weight=1)
-        self.primary_btn = ctk.CTkButton(actions, text=self.t("start"), height=50,
-                                         corner_radius=12,
+        self.primary_btn = ctk.CTkButton(actions, text=self.t("start"), height=46,
+                                         corner_radius=16,
                                          font=ctk.CTkFont(FONT_UI, 16, weight="bold"),
                                          command=self._on_primary)
         self.primary_btn.grid(row=0, column=0, sticky="ew", padx=(0, 12))
         self.open_btn = ctk.CTkButton(actions, text=self.t("open_folder"), width=150,
-                                      height=50, corner_radius=12, fg_color=SURFACE2,
+                                      height=46, corner_radius=16, fg_color=SURFACE,
                                       hover_color=HOVER, border_width=1, border_color=BORDER,
                                       text_color=TEXT, text_color_disabled=MUTED,
                                       font=ctk.CTkFont(FONT_UI, 13),
@@ -2076,48 +2242,50 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.open_btn.grid(row=0, column=1)
 
         # İlerleme
-        prog = ctk.CTkFrame(main, fg_color="transparent")
-        prog.grid(row=5, column=0, sticky="ew", pady=(18, 0))
+        prog = ctk.CTkFrame(main, fg_color=SURFACE, corner_radius=14,
+                            border_width=1, border_color=BORDER_SOFT)
+        prog.grid(row=5, column=0, sticky="ew", pady=(12, 0))
         prog.grid_columnconfigure(0, weight=1)
-        self.progress = ctk.CTkProgressBar(prog, height=8, corner_radius=4,
+        self.progress = ctk.CTkProgressBar(prog, height=5, corner_radius=3,
                                            fg_color=SURFACE2)
-        self.progress.grid(row=0, column=0, sticky="ew", padx=(0, 14))
+        self.progress.grid(row=1, column=0, sticky="ew", padx=(16, 12), pady=(0, 10))
         self.progress.set(0)
-        self.percent_lbl = ctk.CTkLabel(prog, text="0%", width=52,
+        self.percent_lbl = ctk.CTkLabel(prog, text="0%", width=52, height=20,
                                         font=ctk.CTkFont(FONT_UI, 14, weight="bold"))
-        self.percent_lbl.grid(row=0, column=1)
+        self.percent_lbl.grid(row=1, column=1, padx=(0, 14), pady=(0, 10))
 
         # Aşama zinciri: Ses → Whisper → Parakeet → Hizalama → Gemini X/Y → Çıktı
         self.stage_bar = ctk.CTkFrame(prog, fg_color="transparent")
-        self.stage_bar.grid(row=1, column=0, columnspan=2, sticky="w", pady=(8, 0))
+        self.stage_bar.grid(row=2, column=0, columnspan=2, sticky="w", padx=16, pady=(0, 10))
         self._chip_keys = ("audio", "whisper", "parakeet", "align", "gemini", "output")
         self._chips, self._chip_arrows = {}, []
         for i, k in enumerate(self._chip_keys):
             if i:
-                a = ctk.CTkLabel(self.stage_bar, text="→", text_color=FAINT,
+                a = ctk.CTkLabel(self.stage_bar, text="→", text_color=FAINT, height=20,
                                  font=ctk.CTkFont(FONT_UI, 12))
-                a.pack(side="left", padx=6)
+                a.pack(side="left", padx=4)
                 self._chip_arrows.append(a)
-            lbl = ctk.CTkLabel(self.stage_bar, text=self.t("chip_" + k), text_color=FAINT,
+            lbl = ctk.CTkLabel(self.stage_bar, text=self.t("chip_" + k), text_color=FAINT, height=20,
                                font=ctk.CTkFont(FONT_UI, 12))
             lbl.pack(side="left")
             self._chips[k] = lbl
         self._chip_state = {}
 
         # Durum + istatistik
-        srow = ctk.CTkFrame(main, fg_color="transparent")
-        srow.grid(row=6, column=0, sticky="ew", pady=(10, 0))
+        srow = ctk.CTkFrame(prog, fg_color="transparent")
+        srow.grid(row=0, column=0, columnspan=2, sticky="ew", padx=16, pady=(10, 4))
         srow.grid_columnconfigure(1, weight=1)
-        self.status_dot = ctk.CTkLabel(srow, text="●", text_color=GREEN,
+        self.status_dot = ctk.CTkLabel(srow, text="●", text_color=GREEN, height=22,
                                        font=ctk.CTkFont(FONT_UI, 13))
         self.status_dot.grid(row=0, column=0, padx=(0, 8))
-        self.status_lbl = ctk.CTkLabel(srow, text=self.t("st_ready"),
+        self.status_lbl = ctk.CTkLabel(srow, text=self.t("st_ready"), height=22,
                                        font=ctk.CTkFont(FONT_UI, 13, weight="bold"),
                                        text_color=TEXT)
         self.status_lbl.grid(row=0, column=1, sticky="w")
-        self.stats_lbl = ctk.CTkLabel(srow, text="", font=ctk.CTkFont(FONT_UI, 12),
-                                      text_color=MUTED, anchor="e")
-        self.stats_lbl.grid(row=0, column=2, sticky="e")
+        self.stats_lbl = ctk.CTkLabel(prog, text="", font=ctk.CTkFont(FONT_UI, 12),
+                                      text_color=MUTED, anchor="w", height=20)
+        self.stats_lbl.grid(row=3, column=0, columnspan=2, sticky="ew", padx=16, pady=(0, 10))
+        self.stats_lbl.grid_remove()
         # "Manuel moda geç": hibrit modda iş sürerken HER ZAMAN görünür; Gemini
         # hatası sonrası "Manuel modla devam et" olarak kalır.
         self.manual_btn = ctk.CTkButton(srow, text=self.t("to_manual"), width=150, height=30,
@@ -2131,15 +2299,15 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         # Günlük paneli
         logc = ctk.CTkFrame(main, corner_radius=16, fg_color=TERM_BG,
                             border_width=1, border_color=BORDER_SOFT)
-        logc.grid(row=7, column=0, sticky="nsew", pady=(18, 0))
+        logc.grid(row=7, column=0, sticky="nsew", pady=(10, 0))
         logc.grid_columnconfigure(0, weight=1)
         logc.grid_rowconfigure(1, weight=1)
         lhead = ctk.CTkFrame(logc, fg_color="transparent")
-        lhead.grid(row=0, column=0, sticky="ew", padx=18, pady=(14, 0))
+        lhead.grid(row=0, column=0, sticky="ew", padx=16, pady=(10, 0))
         lhead.grid_columnconfigure(0, weight=1)
         self.log_cap = ctk.CTkLabel(lhead, text=self.t("log"),
                                     font=ctk.CTkFont(FONT_UI, 12, weight="bold"),
-                                    text_color=MUTED)
+                                    text_color=TEXT)
         self.log_cap.grid(row=0, column=0, sticky="w")
         self.export_btn = ctk.CTkButton(lhead, text=self.t("log_export"), width=96, height=28,
                                         corner_radius=8, fg_color=TERM_PANEL, hover_color=HOVER,
@@ -2154,9 +2322,9 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         # height küçük tutulur: bu yalnızca EN KÜÇÜK istek; satır ağırlığı sayesinde
         # boş alan varsa Günlük paneli büyür (_FitScrollFrame uzatır).
         self.log_box = ctk.CTkTextbox(logc, corner_radius=10, fg_color=TERM_BG,
-                                      text_color=TERM_TXT, height=90,
-                                      font=ctk.CTkFont(FONT_MONO, 13), wrap="word")
-        self.log_box.grid(row=1, column=0, sticky="nsew", padx=16, pady=14)
+                                      text_color=TERM_TXT, height=60,
+                                      font=ctk.CTkFont(FONT_MONO, 12), wrap="word")
+        self.log_box.grid(row=1, column=0, sticky="nsew", padx=12, pady=(6, 10))
         self.log_box.configure(state="disabled")
 
     # ===================================================================== TEMA / DİL / MOD
@@ -2166,47 +2334,45 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
 
     def _apply_accent(self, accent, hover):
         self.accent, self.accent_hover = accent, hover
-        self.logo_dot.configure(text_color=accent)
-        self.brand_rule.configure(fg_color=accent)
-        self.drop_icon.configure(text_color=accent)
-        self.browse_btn.configure(fg_color=accent, hover_color=hover)
-        self.model_menu.configure(button_color=accent, button_hover_color=hover)
-        self.src_menu.configure(button_color=accent, button_hover_color=hover)
-        self.post_menu.configure(button_color=accent, button_hover_color=hover)
-        self.speed_seg.configure(selected_color=accent, selected_hover_color=hover)
-        self.engine_seg.configure(selected_color=accent, selected_hover_color=hover)
+        self.logo_dot.configure(text_color=TEXT)
+        self.drop_icon.configure(text_color=TEXT)
+        self.browse_btn.configure(fg_color=accent, hover_color=hover, text_color=ON_ACCENT)
+        for menu in (self.model_menu, self.src_menu, self.post_menu, self.gem_model_box):
+            menu.configure(button_color=SURFACE2, button_hover_color=HOVER)
+        for seg in (self.speed_seg, self.settings_tabs, self.appear_seg):
+            seg.configure(selected_color=SEGMENT, selected_hover_color=SEGMENT,
+                          unselected_color=SURFACE2, unselected_hover_color=HOVER,
+                          fg_color=SURFACE2, text_color=TEXT, corner_radius=8)
+        self._style_segments()
+        self._rebuild_engine_seg()
         self.progress.configure(progress_color=accent)
-        self.percent_lbl.configure(text_color=accent)
-        self.char_val.configure(text_color=accent)
-        self.min_val.configure(text_color=accent)
-        self.vad_val.configure(text_color=accent)
-        self.char_slider.configure(button_color=accent, button_hover_color=hover,
-                                   progress_color=accent)
-        self.min_slider.configure(button_color=accent, button_hover_color=hover,
-                                  progress_color=accent)
-        self.vad_slider.configure(button_color=accent, button_hover_color=hover,
-                                  progress_color=accent)
-        for sl in (self.chunk_slider, self.mchunk_slider):
-            sl.configure(button_color=accent, button_hover_color=hover, progress_color=accent)
-        self.chunk_val.configure(text_color=accent)
-        self.mchunk_val.configure(text_color=accent)
-        self.highlight_switch.configure(progress_color=accent)
-        self.manual_switch.configure(progress_color=accent)
-        self.gem_model_box.configure(button_color=accent, button_hover_color=hover)
+        for label in (self.percent_lbl, self.char_val, self.min_val, self.vad_val,
+                      self.chunk_val, self.mchunk_val):
+            label.configure(text_color=TEXT)
+        for sl in (self.char_slider, self.min_slider, self.vad_slider,
+                   self.chunk_slider, self.mchunk_slider):
+            sl.configure(button_color=TEXT, button_hover_color=MUTED, fg_color=SURFACE2,
+                         progress_color=accent, border_width=5, button_length=12)
+        for switch in (self.highlight_switch, self.manual_switch,
+                       self.sentence_switch, self.preview_switch):
+            switch.configure(progress_color=accent, fg_color=BORDER,
+                             button_color=ON_ACCENT, button_hover_color=ON_ACCENT)
         self._render_stage_chips()
-        self.sentence_switch.configure(progress_color=accent)
-        self.preview_switch.configure(progress_color=accent)
         for cb in self.fmt_boxes.values():
-            cb.configure(fg_color=accent, hover_color=hover)
-        self.appear_seg.configure(selected_color=accent, selected_hover_color=hover)
+            cb.configure(fg_color=accent, hover_color=hover, checkmark_color=ON_ACCENT,
+                         border_color=BORDER)
         for name, (col, _) in ACCENTS.items():
-            sel = (col == accent)
-            self.swatches[name].configure(border_width=2 if sel else 0, border_color=TEXT)
+            self.swatches[name].configure(selected=name == self._accent_name)
         self._refresh_lang_buttons()
         self._update_primary()
 
     def _set_mode(self, val):
-        ctk.set_appearance_mode("dark" if val == "☾" else "light")
+        mode = "dark" if val in ("☾", self.t("look_dark")) else "light"
+        ctk.set_appearance_mode(mode)
+        self.appear_seg.set(self.t("look_" + mode))
+        self._style_segments()
+        for win in (self, *(w for w in self.winfo_children() if isinstance(w, ctk.CTkToplevel))):
+            self.after(100, lambda w=win: self._style_titlebar(w))
 
     def _set_lang(self, code):
         self.lang = code
@@ -2215,14 +2381,25 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
     def _refresh_lang_buttons(self):
         for code, b in self.lang_btns.items():
             if code == self.lang:
-                b.configure(fg_color=self.accent, hover_color=self.accent_hover,
-                            text_color="#ffffff", border_width=0)
+                b.configure(fg_color=SEGMENT, hover_color=SEGMENT,
+                            text_color=TEXT, border_width=1, border_color=BORDER_SOFT)
             else:
                 b.configure(fg_color="transparent", hover_color=HOVER,
                             text_color=MUTED, border_width=1, border_color=BORDER)
 
     def _retext(self):
-        self.cap_engine.configure(text=self.t("engine"))
+        self.appear_seg.configure(values=[self.t("look_light"), self.t("look_dark")])
+        self.appear_seg.set(self.t("look_" + ctk.get_appearance_mode().lower()))
+        for name, tile in self.swatches.items():
+            tile.configure(title=self.t("accent_" + name))
+        self.palette_hint.configure(text=self.t("palette_hint"))
+        self.brand_hint.configure(text=self.t("brand_hint"))
+        self.workspace_title.configure(text=self.t("workspace"))
+        self.media_caption.configure(text=self.t("media_step"))
+        self.formats_lbl.configure(text=self.t("drop_formats"))
+        self.settings_tabs.configure(values=[self.t("tab_" + k) for k in self._settings_panels])
+        self._show_settings_tab()
+        self.cap_engine.configure(text=self.t("engine_step"))
         self._rebuild_engine_seg()
         self.cap_key.configure(text=self.t("api_key"))
         self.key_entry.configure(placeholder_text=self.t("api_key_ph"))
@@ -2264,10 +2441,10 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.term_entry.configure(placeholder_text=self.t("term_ph"))
         self.cap_appear.configure(text=self.t("appearance"))
         self.cap_theme.configure(text=self.t("theme"))
-        self.subtitle_lbl.configure(text=self.t("subtitle"))
+        self.subtitle_lbl.configure(text=self.t("workspace_hint"))
         self.drop_title.configure(text=self.t("drop_title"))
-        self.or_lbl.configure(text=f"—  {self.t('or')}  —")
-        self.browse_btn.configure(text=self.t("browse"))
+        self.or_lbl.configure(text=self.t("drop_hint"))
+        self.browse_btn.configure(text=self.t("add_files" if self.files else "browse"))
         self.open_btn.configure(text=self.t("open_folder"))
         self.clear_all_btn.configure(text=self.t("clear_all"))
         self.log_cap.configure(text=self.t("log"))
@@ -2280,6 +2457,9 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         if self._last_stats:
             self._set_stats(self._last_stats)
         self._update_primary()
+        self._style_segments()
+        if hasattr(self, "_device_ok"):
+            self._set_device(self._device_ok)
 
     # ===================================================================== DOSYA / DnD
     def browse_file(self):
@@ -2305,8 +2485,8 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         return event.action
 
     def _on_drag_leave(self, event):
-        self.drop_frame.configure(border_color=BORDER_SOFT, fg_color=SURFACE)
-        self.badge.configure(fg_color=SURFACE2)
+        self.drop_frame.configure(border_color=GLASS_EDGE, fg_color=GLASS)
+        self.badge.configure(fg_color=SURFACE)
         return event.action
 
     def _choose_out_dir(self):
@@ -2349,7 +2529,7 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
             self.files.append(path)
             added += 1
         if added:
-            self.drop_icon.configure(text="✓")
+            self.drop_icon.configure(image=self._drop_images["check"])
             self.last_srt = None
             self.open_btn.configure(state="disabled")
             self._logt("added_n", added)
@@ -2362,7 +2542,7 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         if path in self.files:
             self.files.remove(path)
         if not self.files:
-            self.drop_icon.configure(text="↓")
+            self.drop_icon.configure(image=self._drop_images["upload"])
         self._render_files()
         self._update_primary()
 
@@ -2370,7 +2550,7 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         if self.is_running:
             return
         self.files = []
-        self.drop_icon.configure(text="↓")
+        self.drop_icon.configure(image=self._drop_images["upload"])
         self._render_files()
         self._update_primary()
 
@@ -2387,7 +2567,7 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
             self.files[i], self.files[j] = self.files[j], self.files[i]
             self._render_files()
 
-    DROP_FULL_H = 150      # rozet 48 + başlık + "veya" + düğme 34 + paylar
+    DROP_FULL_H = 134
     DROP_COMPACT_H = 60    # tek satır: başlık + düğme
 
     def _set_drop_compact(self, compact):
@@ -2396,20 +2576,27 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         if compact == self._drop_compact:
             return
         self._drop_compact = compact
-        for w in (self.badge, self.drop_title, self.or_lbl, self.browse_btn):
+        for w in (self.badge, self.drop_title, self.or_lbl, self.browse_btn, self.formats_lbl):
             w.grid_forget()
         if compact:
             self.drop_frame.configure(height=self.DROP_COMPACT_H)
             self.drop_title.configure(font=ctk.CTkFont(FONT_UI, 14, weight="bold"))
-            self.drop_title.grid(row=2, column=0, sticky="w", padx=(22, 8))
+            self.drop_frame.grid_columnconfigure(0, weight=1)
+            self.drop_frame.grid_columnconfigure(1, weight=0)
+            self.drop_title.grid(row=2, column=0, sticky="w", padx=(18, 8))
+            self.browse_btn.configure(text=self.t("add_files"))
             self.browse_btn.grid(row=2, column=1, sticky="e", padx=(8, 14))
         else:
             self.drop_frame.configure(height=self.DROP_FULL_H)
+            self.drop_frame.grid_columnconfigure(0, weight=0)
+            self.drop_frame.grid_columnconfigure(1, weight=1)
             self.drop_title.configure(font=ctk.CTkFont(FONT_UI, 17, weight="bold"))
-            self.badge.grid(row=1, column=0, columnspan=2)
-            self.drop_title.grid(row=2, column=0, columnspan=2, pady=(8, 0))
-            self.or_lbl.grid(row=3, column=0, columnspan=2, pady=(0, 2))
-            self.browse_btn.grid(row=4, column=0, columnspan=2)
+            self.badge.grid(row=1, column=0, rowspan=2, padx=(22, 18))
+            self.drop_title.grid(row=1, column=1, sticky="w", padx=(0, 18))
+            self.or_lbl.grid(row=2, column=1, sticky="w")
+            self.browse_btn.configure(text=self.t("browse"))
+            self.browse_btn.grid(row=3, column=1, sticky="w", pady=(6, 4))
+            self.formats_lbl.grid(row=4, column=1, sticky="w")
 
     def _render_files(self):
         for w in self.files_list.winfo_children():
@@ -2427,12 +2614,14 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         for i, path in enumerate(self.files):
             row = ctk.CTkFrame(self.files_list, fg_color=SURFACE, corner_radius=8)
             row.grid(row=i, column=0, sticky="ew", padx=2, pady=3)
-            row.grid_columnconfigure(1, weight=1)
-            ctk.CTkLabel(row, text="🎞", font=ctk.CTkFont(FONT_UI, 14)).grid(
+            row.grid_columnconfigure(1, weight=1, minsize=0)
+            ctk.CTkLabel(row, text=f"{i + 1:02}", text_color=FAINT,
+                         font=ctk.CTkFont(FONT_MONO, 12)).grid(
                 row=0, column=0, padx=(10, 8), pady=7)
-            ctk.CTkLabel(row, text=os.path.basename(path), anchor="w",
-                         font=ctk.CTkFont(FONT_UI, 12), text_color=TEXT).grid(
-                row=0, column=1, sticky="w")
+            name = ctk.CTkLabel(row, text="", width=1, anchor="w",
+                                 font=ctk.CTkFont(FONT_UI, 12), text_color=TEXT)
+            name.grid(row=0, column=1, sticky="ew")
+            name.bind("<Configure>", lambda e, label=name, p=path: self._fit_file_label(label, p))
             up = ctk.CTkButton(row, text="▲", width=26, height=26, corner_radius=6,
                                fg_color="transparent", hover_color=HOVER, text_color=MUTED,
                                font=ctk.CTkFont(FONT_UI, 11),
@@ -2452,6 +2641,20 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
                           font=ctk.CTkFont(FONT_UI, 12),
                           command=lambda p=path: self._remove_file(p)).grid(
                 row=0, column=4, padx=(2, 8))
+
+    @staticmethod
+    def _fit_file_label(label, path):
+        """Uzun dosya adlarında uzantıyı koru; sıra düğmelerini dışarı itme."""
+        filename = os.path.basename(path)
+        scale = label._get_widget_scaling()
+        available = max(20, label.winfo_width() / scale - 8)
+        font = label.cget("font")
+        if font.measure(filename) > available:
+            stem, ext = os.path.splitext(filename)
+            while stem and font.measure(stem + "…" + ext) > available:
+                stem = stem[:-1]
+            filename = stem + "…" + ext
+        label.configure(text=filename)
 
     # ===================================================================== BAŞLAT / DURDUR
     def _on_primary(self):
@@ -2595,6 +2798,7 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
     def _collect_settings(self):
         return {
             "lang": self.lang,
+            "palette_version": 2,
             "appearance": ctk.get_appearance_mode().lower(),
             "accent": self._accent_name,
             "engine": self._engine,
@@ -2648,9 +2852,14 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         mode = d.get("appearance")
         if mode in ("dark", "light"):
             ctk.set_appearance_mode(mode)
-            self.appear_seg.set("☾" if mode == "dark" else "☀")
-        if d.get("accent") in ACCENTS:
-            self._set_accent(d["accent"])
+            self.appear_seg.set(self.t("look_" + mode))
+        accent = d.get("accent")
+        # Eski varsayılan moru yeni nötr palete taşı. Kullanıcının açık/koyu
+        # tercihi ve diğer renk seçimleri korunur; motor şeması değişmez.
+        if d.get("palette_version", 0) < 2 and accent == "indigo":
+            accent = "graphite"
+        if accent in ACCENTS:
+            self._set_accent(accent)
         # Motor: SDK yoksa Gemini gerektiren modlar sessizce yerel moda düşer.
         eng = d.get("engine")
         if int(d.get("sv") or 0) < SETTINGS_VERSION:
@@ -2721,6 +2930,16 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
             self.destroy()
         except Exception:
             pass
+
+    def destroy(self):
+        # Kaydırma izleyicileri ve CTk zamanlayıcıları kapalı bir pencereye
+        # dönmesin. Tcl komutlarının kendisini normal widget yıkımı temizler.
+        try:
+            for timer in self.tk.call("after", "info"):
+                self.tk.call("after", "cancel", timer)
+        except tkinter.TclError:
+            pass
+        super().destroy()
 
     # ============================================= ARKA PLAN TRANSCRIBE (THREAD)
     def _batch_worker(self, files, opts):
@@ -3038,7 +3257,7 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
             row=0, column=1, padx=(0, 10))
         save_btn = ctk.CTkButton(bar, text=self.t("save"), width=170, height=42,
                                  corner_radius=10, fg_color=self.accent,
-                                 hover_color=self.accent_hover, text_color="#ffffff",
+                                 hover_color=self.accent_hover, text_color=ON_ACCENT,
                                  font=ctk.CTkFont(FONT_UI, 14, weight="bold"),
                                  command=do_save)
         save_btn.grid(row=0, column=2)
@@ -3169,7 +3388,7 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
                 corner_radius=9, font=F(12, primary),
                 fg_color=self.accent if primary else SURFACE2,
                 hover_color=self.accent_hover if primary else HOVER,
-                text_color="#ffffff" if primary else TEXT,
+                text_color=ON_ACCENT if primary else TEXT,
                 border_width=0 if primary else 1, border_color=BORDER)
 
         # 1) ses parçası
@@ -3505,6 +3724,7 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
             self._open_manual_wizard(path, opts)
 
     def _set_device(self, ok):
+        self._device_ok = ok
         self.dev_dot.configure(text_color=GREEN if ok else WARN)
         self.dev_lbl.configure(text=self.t("dev_gpu" if ok else "dev_cpu"))
 
@@ -3525,6 +3745,7 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
 
     def _set_stats(self, d):
         self._last_stats = d
+        self.stats_lbl.grid()
         prefix = ""
         if d.get("total", 1) > 1:
             prefix = self.t("file_progress", d.get("fi", 1), d["total"]) + " • "
@@ -3622,7 +3843,8 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         if busy:
             self.browse_btn.configure(state="disabled")
             self.model_menu.configure(state="disabled")
-            self._set_seg_state(self.engine_seg, "disabled")
+            for card in self.engine_cards.values():
+                card.configure(state="disabled")
             self.key_entry.configure(state="disabled")
             self.clear_all_btn.configure(state="disabled")
             self.primary_btn.configure(text=self.t("stop"), state="normal",
@@ -3632,7 +3854,8 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
             self.cancel_event.clear()
             self.browse_btn.configure(state="normal")
             self.model_menu.configure(state="normal")
-            self._set_seg_state(self.engine_seg, "normal")
+            for card in self.engine_cards.values():
+                card.configure(state="normal")
             self.key_entry.configure(state="normal")
             self.clear_all_btn.configure(state="normal")
             self.progress.stop()
@@ -3648,7 +3871,7 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
             txt = self.t("start_n", n) if n > 1 else self.t("start")
             self.primary_btn.configure(text=txt, state="normal",
                                        fg_color=self.accent, hover_color=self.accent_hover,
-                                       text_color="#ffffff", border_width=0)
+                                       text_color=ON_ACCENT, border_width=0)
         else:
             self.primary_btn.configure(text=self.t("need_file"), state="disabled",
                                        fg_color=SURFACE2, hover_color=HOVER,
