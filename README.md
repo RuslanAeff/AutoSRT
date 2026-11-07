@@ -40,7 +40,7 @@
 | 🗣️ | **Terim ipucu** (`initial_prompt`) — isim/jargon yazımı | **Vocabulary hint** (`initial_prompt`) — names/jargon spelling |
 | ✏️ | **Yerleşik düzenleyici** — kaydetmeden önce metni/zamanı düzelt | **Built-in editor** — fix text/timing before saving |
 | 🎚️ | Okunabilirlik: karakter sınırı, min. süre, cümle-sonu bölme | Readability: char limit, min duration, sentence-end split |
-| 🎨 | Sade premium arayüz · açık/koyu mod · 4 vurgu rengi | Premium UI · light/dark mode · 4 accent themes |
+| 🎨 | İnci / Grafit görünümü · 5 vurgu rengi · buzlu cam hissi | Pearl / Graphite appearance · 5 accent colors · frosted surfaces |
 | 🌐 | Canlı TR / EN arayüz dili | Live TR / EN interface language |
 | 🔔 | İşlem bitince Windows bildirimi (tıkla → klasörü aç) | Windows toast on completion (click → open folder) |
 | 🖱️ | Sürükle & bırak (çoklu dosya) | Drag & drop (multiple files) |
@@ -54,7 +54,18 @@
 
 ## Ekran Görüntüsü / Screenshot
 
-> _(Uygulama ilk açıldığında — indigo tema, TR dil)_
+![AutoSRT — İnci görünümü, Türkçe arayüz](docs/interface-light.png)
+
+![AutoSRT — Grafit görünümü, Türkçe arayüz](docs/interface-dark.png)
+
+Ayarlar **Motor**, **Çıktı** ve **Görünüm** sekmelerinde düzenlenir. Açıklamalı motor
+kartları, dosya kuyruğu ve işlem durumu ana çalışma alanındadır. Küçük pencerelerde
+içerik kaydırılır; açık/koyu tema ve TR/EN dil değişimi anında uygulanır.
+
+**İnci / Grafit:** sıcak beyaz ve alüminyum ya da nötr kömür grisi yüzeyler.
+**Vurgu renkleri:** Grafit, Mavi, Adaçayı, Gül ve Lavanta. Dosya ekleme kartında
+ince ışıklı kenarlarla buzlu cam hissi kullanılır; bu efekt gerçek masaüstü
+bulanıklığı veya şeffaflığı uygulamaz. Windows 11 başlık çubuğu da palete uyum sağlar.
 
 ---
 
@@ -114,14 +125,14 @@ AutoSRT.vbs
 ```
 
 1. Bir veya **birden çok** dosyayı sürükleyip bırakın **veya** "Dosya Seç" ile seçin → kuyruğa eklenir (▲/▼ ile sırala, ✕ ile kaldır).
-2. (İsteğe bağlı) Sol panelden model, **kaynak dil**, **çıktı biçimi/klasörü**, **terim ipucu**, tema ve okunabilirlik ayarlarını belirleyin.
+2. (İsteğe bağlı) Sol panelde **Motor** sekmesinden model ve kaynak dili, **Çıktı** sekmesinden biçim/klasör, terim ipucu ve okunabilirliği, **Görünüm** sekmesinden tema ve arayüz dilini ayarlayın.
 3. **"Altyazı Oluştur"** butonuna tıklayın (birden çok dosyada "Altyazı Oluştur (N)").
 4. İlerleme çubuğu, ETA ve Günlük panelinden takip edin.
 5. "Kaydetmeden önce düzenle" açıksa her dosya için düzenleyici açılır; değilse seçili biçimler doğrudan kaydedilir. Bitince Windows bildirimi gelir.
 
 ### Motor seçimi / Engine selection
 
-Ana ekrandaki **MOTOR** satırından dört moddan biri seçilir:
+Ana ekrandaki **İŞLEME MOTORU** kartlarından dört moddan biri seçilir:
 
 | Mod | Ne yapar | Çıktı | İnternet |
 |---|---|---|---|
@@ -280,6 +291,7 @@ Altyazıların ekranda "şak şak" hızlı geçmesini engellemek için:
 
 ```
 customtkinter>=5.2.2
+Pillow>=10.1               # arayüz çizimi: ikon, pürüzsüz yüzeyler, buzlu cam, oklar
 tkinterdnd2>=0.4.2
 winotify>=1.1.0
 faster-whisper>=1.0.3      # Whisper (yerel)
@@ -308,6 +320,7 @@ dönüşümünü HuggingFace'ten kendisi indiriyor ve token zaman damgası veriy
 ```
 AutoSRT/
 ├── main.py            # GUI + Whisper/Gemini Transcribe motorları + dilimleme
+├── autosrt_widgets.py # Arayüz bileşenleri: pürüzsüz/cam yüzeyler, motor kartları, oklar
 ├── autosrt_core/      # Hibrit motor çekirdeği (Tkinter'dan bağımsız)
 │   ├── audio.py       #   16 kHz WAV çıkarma (PyAV), VAD pencereleri
 │   ├── parakeet.py    #   Parakeet TDT v3 — ayrı süreçte, GPU (onnx-asr)
