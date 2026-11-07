@@ -380,6 +380,8 @@ class GeminiJudge:
                 response_json_schema=RESPONSE_SCHEMA,
                 temperature=0.2,
                 max_output_tokens=60000,
+                # Araç kullanmıyoruz: SDK'nın "AFC" uyarısını ve gereksiz döngüyü kapat.
+                automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
             )
             contents = [uploaded, user_payload(items, context)]
             resp = self._call(lambda: self.client.models.generate_content(
