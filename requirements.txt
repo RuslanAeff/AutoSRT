@@ -17,8 +17,25 @@ faster-whisper>=1.0.3
 # Anahtar: GEMINI_API_KEY ortam degiskeni ya da kenar cubugundaki alan.
 google-genai>=2.20.0
 
+# --- Hibrit motor (v1.7): Parakeet TDT 0.6B v3 + Gemini hakem ---
+# Parakeet ONNX ile calisir (NeMo/PyTorch GEREKMEZ). Model ilk kullanimda
+# HuggingFace'ten indirilir (~2.5 GB, %USERPROFILE%\.cache\huggingface).
+onnx-asr[hub]>=0.12.0
+# Sayi normalizasyonu ("20" == "twenty") ve .env okuma
+num2words>=0.5.13
+python-dotenv>=1.0.0
+
+# DIKKAT — onnxruntime-gpu:
+#  * faster-whisper CPU surumu "onnxruntime"u ceker; ikisi AYNI klasore yazar.
+#    Kurulumdan SONRA README'deki "GPU onnxruntime" adimini calistirin.
+#  * 1.27+ CUDA 13 ile derlenir (surucu >= 580 ister). CUDA 12 icin 1.26.x'te kalin.
+onnxruntime-gpu==1.26.0
+
 # --- NVIDIA CUDA 12 calisma zamani DLL'leri ---
-# DLL otonom entegrasyonu bu paketlerin "nvidia/cublas/bin" ve
-# "nvidia/cudnn/bin" klasorlerini PATH'e ekler.
+# Parakeet alt sureci bu paketlerin "nvidia/*/bin" klasorlerini add_dll_directory'ye
+# ekler (cuDNN 9 alt kutuphaneleri PATH'e bakmaz).
 nvidia-cublas-cu12
 nvidia-cudnn-cu12
+nvidia-cuda-runtime-cu12
+nvidia-cufft-cu12
+nvidia-curand-cu12
