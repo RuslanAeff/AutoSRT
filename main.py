@@ -67,6 +67,7 @@ from tkinterdnd2 import DND_FILES, TkinterDnD
 from autosrt_core import pipeline as HP
 from autosrt_core import judge as GJ
 from autosrt_core import parakeet as PKE
+from autosrt_core import jobs as HJ
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -208,6 +209,7 @@ VAD_RESCUE_ACCEPT = 0.05       # kurtarma ancak bu orana ulasirsa benimsenir
 ENGINES = ("whisper", "whisper_parakeet", "hybrid", "gemini")
 PIPELINE_MODES = ("whisper_parakeet", "hybrid")
 DEFAULT_MODE = "hybrid"
+SETTINGS_VERSION = 17          # settings.json şeması (v1.7); eskiyse mod varsayılana taşınır
 
 # --- GEMINI 3.5 TRANSCRIBE ---
 GEMINI_MODEL = "gemini-3.5-transcribe"
@@ -1399,6 +1401,8 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.after(80, self._poll_log_queue)
         threading.Thread(target=self._detect_device, daemon=True).start()
+        # 30 günden eski, yarım kalmış iş klasörlerini temizle (ortalık dağılmasın).
+        threading.Thread(target=lambda: HJ.cleanup_stale(30), daemon=True).start()
 
     def _set_window_icon(self):
         """Pencere + gorev cubugu ikonunu icon.ico'dan ayarlar."""
@@ -2412,6 +2416,7 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
             "chunk_manual": int(self.mchunk_slider.get()),
             "highlight": bool(self.highlight_switch.get()),
             "manual_start": bool(self.manual_switch.get()),
+            "sv": SETTINGS_VERSION,
         }
 
     def _save_settings(self):
@@ -2448,6 +2453,10 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
             self._set_accent(d["accent"])
         # Motor: SDK yoksa Gemini gerektiren modlar sessizce yerel moda düşer.
         eng = d.get("engine")
+        if int(d.get("sv") or 0) < SETTINGS_VERSION:
+            # v1.7'ye ilk geçiş: eski (whisper/gemini) seçim yerine yeni varsayılan
+            # hibrit mod; bundan sonraki seçimler normal şekilde hatırlanır.
+            eng = DEFAULT_MODE
         if eng in ENGINES:
             if eng in ("gemini", "hybrid") and not GeminiEngine.available():
                 eng = "whisper_parakeet" if eng == "hybrid" else "whisper"
