@@ -25,6 +25,13 @@ _engine_test.py
 _test_sample.*
 _shot.png
 
+# API anahtarlari / gizli bilgiler — ASLA commit edilmez.
+# (Uygulama anahtari %APPDATA%\AutoSRT\secrets.json'a yazar, yani proje
+# klasorunun disina; asagidakiler yanlislikla buraya kopyalanirsa diye.)
+secrets.json
+.env
+*.key
+
 # IDE
 .vscode/
 .idea/
