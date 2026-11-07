@@ -58,6 +58,8 @@
 
 ![AutoSRT — Grafit görünümü, Türkçe arayüz](docs/interface-dark.png)
 
+![AutoSRT — Graphite appearance, English interface](docs/interface-dark-en.png)
+
 Ayarlar **Motor**, **Çıktı** ve **Görünüm** sekmelerinde düzenlenir. Açıklamalı motor
 kartları, dosya kuyruğu ve işlem durumu ana çalışma alanındadır. Küçük pencerelerde
 içerik kaydırılır; açık/koyu tema ve TR/EN dil değişimi anında uygulanır.
