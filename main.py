@@ -415,6 +415,7 @@ L = {
         "gj_invalid": "Parça {}: cevap eksik/bozuk ({} satır) → bir kez otomatik tekrar deneniyor.",
         "gj_fallback": "⚠ Parça {}: {} satır doğrulanamadı → Whisper metni kullanıldı (editörde işaretli).",
         "gj_retry": "Gemini geçici hata/sınır — deneme {}/{}: {} sn bekleniyor ({}).",
+        "kind_rate": "istek sınırı", "kind_server": "sunucu meşgul", "kind_net": "bağlantı yok",
         "hy_manual": "Manuel moda geçildi — ilerleme kaydedildi, sihirbaz açılıyor.",
         "hy_done": "✓ {} satır • {} anlaşmazlık • {} düşük güven • {} doğrulanamadı",
         "hy_cleanup": "Geçici iş dosyaları silindi.",
@@ -591,6 +592,7 @@ L = {
         "gj_invalid": "Part {}: incomplete/broken answer ({} lines) → retrying once automatically.",
         "gj_fallback": "⚠ Part {}: {} line(s) could not be validated → Whisper text used (flagged in editor).",
         "gj_retry": "Gemini temporary error/limit — attempt {}/{}: waiting {} s ({}).",
+        "kind_rate": "rate limit", "kind_server": "server busy", "kind_net": "no connection",
         "hy_manual": "Switched to manual mode — progress saved, opening the wizard.",
         "hy_done": "✓ {} lines • {} disagreements • {} low confidence • {} unverified",
         "hy_cleanup": "Temporary job files removed.",
@@ -1647,11 +1649,16 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.gem_model_cap = ctk.CTkLabel(jf, text=self.t("gem_model"), text_color=MUTED,
                                           font=ctk.CTkFont(FONT_UI, 12))
         self.gem_model_cap.grid(row=0, column=0, sticky="w")
-        self.gem_model_entry = ctk.CTkEntry(jf, height=32, corner_radius=10,
-                                            fg_color=SURFACE2, border_color=BORDER,
-                                            text_color=TEXT, font=ctk.CTkFont(FONT_UI, 12))
-        self.gem_model_entry.insert(0, GJ.DEFAULT_MODEL)
-        self.gem_model_entry.grid(row=1, column=0, sticky="ew", pady=(4, 0))
+        # Açılır liste + yazılabilir: bilinen ücretsiz modeller listede, yeni çıkan
+        # bir model adı da elle yazılabilir.
+        self.gem_model_var = ctk.StringVar(value=GJ.DEFAULT_MODEL)
+        self.gem_model_box = ctk.CTkComboBox(
+            jf, values=list(GJ.GEMINI_MODELS), variable=self.gem_model_var,
+            height=32, corner_radius=10, fg_color=SURFACE2, border_color=BORDER,
+            button_color=self.accent, button_hover_color=self.accent_hover,
+            dropdown_fg_color=SURFACE2, text_color=TEXT, dropdown_text_color=TEXT,
+            font=ctk.CTkFont(FONT_UI, 12), dropdown_font=ctk.CTkFont(FONT_UI, 12))
+        self.gem_model_box.grid(row=1, column=0, sticky="ew", pady=(4, 0))
         self.judge_frame = jf
         self.chunk_cap, self.chunk_val, self.chunk_slider = self._slider_block(
             sb, r, "chunk_auto", 5, 25, 20, 10,
@@ -2185,6 +2192,7 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.mchunk_val.configure(text_color=accent)
         self.highlight_switch.configure(progress_color=accent)
         self.manual_switch.configure(progress_color=accent)
+        self.gem_model_box.configure(button_color=accent, button_hover_color=hover)
         self._render_stage_chips()
         self.sentence_switch.configure(progress_color=accent)
         self.preview_switch.configure(progress_color=accent)
@@ -2506,7 +2514,7 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
             "beam_size": 5 if self._speed == "fast" else 10,
             "vad_threshold": vad_threshold,
             # hibrit boru hattı
-            "gemini_model": self.gem_model_entry.get().strip() or GJ.DEFAULT_MODEL,
+            "gemini_model": self._gem_model(),
             "chunk_min_auto": int(self.chunk_slider.get()),
             "chunk_min_manual": int(self.mchunk_slider.get()),
             "manual_mode": bool(manual_mode),
@@ -2603,7 +2611,7 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
             "out_dir": self.out_dir,
             "term": self.term_entry.get().strip(),
             "post_action": self._post_action,
-            "gem_model": self.gem_model_entry.get().strip() or GJ.DEFAULT_MODEL,
+            "gem_model": self._gem_model(),
             "chunk_auto": int(self.chunk_slider.get()),
             "chunk_manual": int(self.mchunk_slider.get()),
             "highlight": bool(self.highlight_switch.get()),
@@ -2654,8 +2662,7 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
                 eng = "whisper_parakeet" if eng == "hybrid" else "whisper"
             self._engine = eng
         if d.get("gem_model"):
-            self.gem_model_entry.delete(0, "end")
-            self.gem_model_entry.insert(0, str(d["gem_model"]))
+            self.gem_model_var.set(str(d["gem_model"]).strip())
         if "chunk_auto" in d:
             v = min(25, max(5, int(d["chunk_auto"])))
             self.chunk_slider.set(v)
@@ -3537,7 +3544,15 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
             args[2] = self.t("on") if args[2] else self.t("off")
         elif key == "engine_line" and args:
             args = [self.t("engine_" + str(args[0]))]
+        elif key == "gj_retry" and len(args) >= 4:
+            # hata türü (rate/server/net) çevrim anında çözülür
+            args = list(args)
+            args[3] = self.t("kind_" + str(args[3]))
         return self.t(key, *args)
+
+    def _gem_model(self):
+        """Seçili/yazılı Gemini model adı; boşsa varsayılan."""
+        return (self.gem_model_var.get() or "").strip() or GJ.DEFAULT_MODEL
 
     def _insert_line(self, message):
         box = self.log_box
