@@ -44,7 +44,22 @@ Hibrit modlar ayrı worker kullanır (`_hybrid_batch_worker`).
   `%APPDATA%\AutoSRT\secrets.json`'da durur; `settings.json`'a, loglara, koda yazılmaz.
 - `.env.example` yalnızca **boş** şablondur — içine gerçek anahtar yazmayın.
 
-## 5. Arayüz metinleri
+## 5. Arayüz bileşenleri ve renkler (testle kilitli)
+
+- Özel bileşenler `autosrt_widgets.py`'dedir: `SmoothFrame` (pürüzsüz / buzlu cam
+  yüzey), `ChoiceCard` (motor ve vurgu rengi kartları: tüm kart tek tıklama alanı,
+  ~160 ms yumuşak geçiş), `OptionMenu` / `ComboBox` (çizilmiş ok). Yeni açılır menü
+  için `ctk.CTkOptionMenu` yerine bunları kullanın.
+- Bu bileşenler Pillow ile çizilir → `Pillow` `requirements.txt`'te kalmalıdır
+  (customtkinter onu kurmaz; eksikse uygulama hiç açılmaz).
+- Cam dekor (renkli ışıltı + yüzen kartlar) yalnızca `GLASS_SHEETS_MIN_H` ve üzeri
+  yükseklikte çizilir; ince şeritte düğmenin altına/üstüne biner. Eşiği düşürmeyin.
+- Renk paleti `main.py` başındaki `(açık, koyu)` çiftleridir. Metin/zemin ve vurgu
+  üstü yazı kontrastı en az 4.5:1 olmalı (`tests/test_ui.py`).
+- `docs/interface-*.png` README görselleridir; arayüz değişince `_smoke_polish.py`
+  ile yeniden üretin.
+
+## 6. Arayüz metinleri
 
 Her yeni metin `L["tr"]` **ve** `L["en"]` tablosuna eklenir; Türkçe karakterler doğru
 Unicode olmalıdır (ç ş ı İ ğ ü ö).
