@@ -25,6 +25,7 @@ import json
 import queue
 import threading
 import gc
+import bisect
 
 
 # --- KONSOL (CMD) PENCERESINI GIZLE ---------------------------------------
@@ -179,6 +180,44 @@ DEVICE = "cuda"
 COMPUTE_TYPE = "float16"
 MODEL_SIZES = ["large-v3", "large-v2", "medium", "small", "base", "tiny"]
 
+# --- VAD (KONUSMA TESPITI) ON-TARAMASI ---
+# faster-whisper transcribe()'i yalnizca VAD'in KONUSMA saydigi parcalar uzerinde
+# calisir. Muzik/gurultu agirlikli bir videoda bu, 14 dakikalik dosyayi 3 saniyeye
+# indirebilir; is aninda biter, ilerleme cubugu %1'de kalir ve uygulama "videoyu
+# erken durdurmus" gibi gorunur. Asagidaki sabitler bu durumu (a) olcmek,
+# (b) gunluge yazmak, (c) gercekten konusma varsa kurtarmak icin kullanilir.
+VAD_SR = 16000                 # faster-whisper'in calistigi ornekleme hizi
+VAD_RESCUE_MIN_DUR = 60.0      # bundan kisa dosyalarda kurtarma denenmez
+VAD_RESCUE_RATIO = 0.02        # konusma orani bunun altindaysa dosya "sessiz" sayilir
+VAD_RESCUE_THRESHOLD = 0.2     # kurtarma taramasinin (gecirgen) esigi
+VAD_RESCUE_ACCEPT = 0.05       # kurtarma ancak bu orana ulasirsa benimsenir
+
+# --- MOTORLAR ---
+# Varsayilan Whisper (yerel) kalir; Gemini bulut motoru ikinci secenektir.
+ENGINES = ("whisper", "gemini")
+
+# --- GEMINI 3.5 TRANSCRIBE ---
+GEMINI_MODEL = "gemini-3.5-transcribe"
+# Kelime zaman damgasi ACIKKEN API tek istekte en fazla 30 DAKIKA ses kabul
+# eder (zaman damgasi/diarizasyon kapaliyken 1 saat). 25 dakikada boluyoruz:
+# 5 dakikalik guvenlik payi, cunku bolme noktasi sessizlige kaydirilabiliyor.
+GEMINI_MAX_CHUNK_SEC = 25 * 60
+GEMINI_MIN_CHUNK_SEC = 60          # bolme aranirken parca icin alt sinir
+GEMINI_SPLIT_SEARCH = 120.0        # sessizlik ararken hedeften geri gidilecek en fazla sure
+GEMINI_MIN_GAP = 0.4               # bu kadar sessizlik "bolunebilir bosluk" sayilir
+GEMINI_SEG_GAP = 0.8               # bu kadar duraklama segment sonu sayilir
+GEMINI_VOCAB_MAX = 100             # API 1000'e kadar kabul eder, en iyi sonuc ~100
+GEMINI_RETRIES = 3                 # 429/5xx icin toplam deneme
+GEMINI_BACKOFF_BASE = 2.0          # saniye; her denemede ikiye katlanir
+
+# Whisper dil kodu -> BCP-47 (Gemini language_codes bunu ister)
+BCP47 = {
+    "tr": "tr-TR", "az": "az-AZ", "en": "en-US", "de": "de-DE", "es": "es-ES",
+    "fr": "fr-FR", "it": "it-IT", "ru": "ru-RU", "pt": "pt-PT", "ar": "ar-SA",
+    "zh": "zh-CN", "ja": "ja-JP", "ko": "ko-KR", "nl": "nl-NL", "pl": "pl-PL",
+    "uk": "uk-UA",
+}
+
 # Kaynak dil seçenekleri (yerel ad, whisper kodu); "Otomatik" ayrıca eklenir
 NATIVE_LANGS = [
     ("Türkçe", "tr"), ("Azərbaycan", "az"), ("English", "en"), ("Deutsch", "de"),
@@ -261,6 +300,38 @@ L = {
         "settings_line": "Ayarlar → karakter: {}, min süre: {} sn, cümle sonu: {}, biçim: {}",
         "on": "açık", "off": "kapalı",
         "detected": "Algılanan dil: {} | Süre: {}",
+        "vad_scan": "Konuşma taraması: {} konuşma / {} toplam (%{})",
+        "vad_rescue": "Konuşma neredeyse hiç bulunamadı → daha geçirgen eşikle ({}) yeniden taranıyor…",
+        "vad_rescue_ok": "Kurtarma başarılı: {} konuşma (%{}) — bu tarama kullanılacak.",
+        "vad_rescue_fail": "Kurtarma da konuşma bulamadı; ilk tarama korunuyor.",
+        "vad_no_speech": "⚠ UYARI: Bu dosyada konuşma yok denecek kadar az. Ses büyük olasılıkla müzik/gürültü — altyazı çok kısa olacak, bu bir hata değil.",
+        # --- motor seçimi / Gemini ---
+        "engine": "MOTOR",
+        "engine_whisper": "Whisper (yerel)",
+        "engine_gemini": "Gemini (bulut)",
+        "api_key": "GEMINI API ANAHTARI",
+        "api_key_ph": "AI Studio anahtarınız",
+        "cloud_warn": "⚠ Bu mod dosyalarınızı Google sunucularına yükler. İşlem bitince yüklenen dosya silinir. Yerel işleme için Whisper'ı seçin.",
+        "key_from_env": "Anahtar GEMINI_API_KEY ortam değişkeninden alınıyor.",
+        "engine_line": "Motor: {}",
+        "gem_ready": "Gemini istemcisi hazır ({}).",
+        "gem_audio": "Ses hazırlandı: {} • dil: {} • özel terim: {}",
+        "gem_split": "Ses {} parçaya bölündü (istek başına en fazla {} dakika).",
+        "gem_part": "Parça {}/{} → {} - {}",
+        "gem_words": "{} kelime alındı.",
+        "gem_overlap": "{} parça sınırında zaman çakışması düzeltildi.",
+        "gem_retry": "Geçici hata — {}/{}. deneme başarısız, {} sn sonra tekrar denenecek…",
+        "gem_no_words": "⚠ UYARI: Gemini bu dosyada hiç kelime döndürmedi.",
+        "gem_err_nosdk": "HATA: 'google-genai' kurulu değil. Kurulum: pip install google-genai",
+        "gem_err_nokey": "HATA: Gemini API anahtarı yok. GEMINI_API_KEY ortam değişkenini ayarlayın ya da anahtarı kenar çubuğuna girin.",
+        "gem_err_auth": "HATA: Gemini API anahtarı geçersiz veya yetkisiz. Anahtarı kontrol edin.",
+        "gem_err_rate": "HATA: Gemini istek sınırına takıldı (429). Biraz bekleyip tekrar deneyin.",
+        "gem_err_quota": "HATA: Gemini kotanız/faturalandırmanız yetersiz. Google AI Studio'dan kotayı kontrol edin.",
+        "gem_err_server": "HATA: Gemini sunucu tarafında hata verdi. Bir süre sonra tekrar deneyin.",
+        "gem_err_net": "HATA: Gemini'ye bağlanılamadı. İnternet bağlantınızı kontrol edin.",
+        "gem_err_audio": "HATA: Ses çözülemedi — dosya bozuk ya da desteklenmeyen bir biçimde olabilir.",
+        "gem_err_other": "HATA: Gemini isteği başarısız oldu.",
+        "stats_words": "Geçen {} • Kalan ~{} • {} kelime • Dil: {}",
         "file_progress": "Dosya {}/{}",
         "done_blocks": "✓ {} altyazı bloğu oluşturuldu.",
         "batch_done": "✓ TAMAMLANDI! {} dosya işlendi.",
@@ -326,6 +397,38 @@ L = {
         "settings_line": "Settings → chars: {}, min dur: {} s, sentence-end: {}, format: {}",
         "on": "on", "off": "off",
         "detected": "Detected language: {} | Duration: {}",
+        "vad_scan": "Speech scan: {} of speech / {} total ({}%)",
+        "vad_rescue": "Almost no speech found → rescanning with a more permissive threshold ({})…",
+        "vad_rescue_ok": "Rescue succeeded: {} of speech ({}%) — using this scan.",
+        "vad_rescue_fail": "The rescue scan found no speech either; keeping the first scan.",
+        "vad_no_speech": "⚠ WARNING: This file contains almost no speech. The audio is most likely music/noise — subtitles will be very short; this is not a bug.",
+        # --- engine selection / Gemini ---
+        "engine": "ENGINE",
+        "engine_whisper": "Whisper (local)",
+        "engine_gemini": "Gemini (cloud)",
+        "api_key": "GEMINI API KEY",
+        "api_key_ph": "Your AI Studio key",
+        "cloud_warn": "⚠ This mode uploads your files to Google servers. The uploaded file is deleted when the job finishes. Choose Whisper for local processing.",
+        "key_from_env": "Key is taken from the GEMINI_API_KEY environment variable.",
+        "engine_line": "Engine: {}",
+        "gem_ready": "Gemini client ready ({}).",
+        "gem_audio": "Audio prepared: {} • language: {} • custom terms: {}",
+        "gem_split": "Audio split into {} parts (max {} minutes per request).",
+        "gem_part": "Part {}/{} → {} - {}",
+        "gem_words": "{} words received.",
+        "gem_overlap": "Fixed {} timestamp overlap(s) at part boundaries.",
+        "gem_retry": "Transient error — attempt {}/{} failed, retrying in {} s…",
+        "gem_no_words": "⚠ WARNING: Gemini returned no words for this file.",
+        "gem_err_nosdk": "ERROR: 'google-genai' is not installed. Install with: pip install google-genai",
+        "gem_err_nokey": "ERROR: No Gemini API key. Set the GEMINI_API_KEY environment variable or enter the key in the sidebar.",
+        "gem_err_auth": "ERROR: The Gemini API key is invalid or unauthorized. Check the key.",
+        "gem_err_rate": "ERROR: Gemini rate limit hit (429). Wait a moment and try again.",
+        "gem_err_quota": "ERROR: Gemini quota/billing is insufficient. Check your quota in Google AI Studio.",
+        "gem_err_server": "ERROR: Gemini returned a server-side error. Try again later.",
+        "gem_err_net": "ERROR: Could not reach Gemini. Check your internet connection.",
+        "gem_err_audio": "ERROR: Could not decode the audio — the file may be corrupt or in an unsupported format.",
+        "gem_err_other": "ERROR: The Gemini request failed.",
+        "stats_words": "Elapsed {} • ETA ~{} • {} words • Lang: {}",
         "file_progress": "File {}/{}",
         "done_blocks": "✓ {} subtitle blocks created.",
         "batch_done": "✓ DONE! {} files processed.",
@@ -364,6 +467,56 @@ L = {
 }
 
 
+# --------------------------------------------------------- API ANAHTARI
+# Anahtar koda GÖMÜLMEZ ve proje klasörüne YAZILMAZ. Ayarlardan ayrı bir
+# dosyada, kullanıcının app-data klasöründe durur (settings.json paylaşılsa
+# bile anahtar sızmasın diye ayrı tutuldu).
+def _secrets_path():
+    base = os.environ.get("APPDATA") or os.path.expanduser("~")
+    return os.path.join(base, "AutoSRT", "secrets.json")
+
+
+def load_secret(name):
+    try:
+        with open(_secrets_path(), encoding="utf-8") as f:
+            return (json.load(f) or {}).get(name) or ""
+    except Exception:
+        return ""
+
+
+def save_secret(name, value):
+    try:
+        p = _secrets_path()
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        try:
+            with open(p, encoding="utf-8") as f:
+                d = json.load(f) or {}
+        except Exception:
+            d = {}
+        if value:
+            d[name] = value
+        else:
+            d.pop(name, None)
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump(d, f, ensure_ascii=False, indent=2)
+        try:
+            os.chmod(p, 0o600)      # yalnız sahibi okusun (Windows'ta etkisiz)
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
+def gemini_api_key(gui_key=None):
+    """Öncelik sırası: (1) GEMINI_API_KEY ortam değişkeni, (2) GUI/app-data."""
+    env = (os.environ.get("GEMINI_API_KEY") or "").strip()
+    if env:
+        return env
+    if gui_key:
+        return gui_key.strip()
+    return load_secret("gemini_api_key").strip()
+
+
 class _Cancelled(Exception):
     pass
 
@@ -385,6 +538,608 @@ class _LogStream:
         return False
 
 
+# =====================================================================
+#  MOTOR KATMANI
+# =====================================================================
+# Ortak kelime sözleşmesi — her motor BU listeyi döndürür:
+#     [{"word": str, "start": float, "end": float, "seg_end": bool}, ...]
+# start/end saniye cinsinden float.
+#
+# "seg_end" (opsiyonel) o kelimenin bir konuşma segmentinin SON kelimesi
+# olduğunu söyler; dilimleyici orada tamponu boşaltır. Whisper'ın eski
+# kodu tam olarak bunu yapıyordu (her `segment` başında tampon sıfırlanıp
+# sonunda artan kelimeler blok olarak yazılıyordu) — bu bayrak olmadan
+# düz kelime listesi çıktıyı DEĞİŞTİRİRDİ. Gemini tarafında uzun
+# duraklamalar aynı bayrağı üretir.
+
+
+class EngineError(Exception):
+    """Kullanıcıya gösterilebilir motor hatası: i18n anahtarı + ham detay.
+    Ham exception arayüze hiç çıkmaz; detay yalnızca günlüğe düşer."""
+    def __init__(self, key, detail=""):
+        super().__init__(key)
+        self.key = key
+        self.detail = detail
+
+
+def slice_words_to_blocks(words, max_chars, sentence_only, on_block=None):
+    """Ortak kelime listesinden altyazı bloklarını üretir.
+
+    MİKRO-DİLİMLEME MANTIĞI BİREBİR KORUNDU; değişen tek şey girdinin
+    artık Whisper segmentleri yerine ortak sözleşme olması. Bölme sırası
+    da aynı: önce karakter sınırı / noktalama, sonra segment sonu artığı.
+    """
+    punct = ('.', '?', '!') if sentence_only else ('.', ',', '?', '!', ':', ';')
+    blocks = []
+    current_chunk_words = []
+    chunk_start = None
+
+    def _flush(chunk_end):
+        text_so_far = "".join([w["word"] for w in current_chunk_words]).strip()
+        blocks.append([chunk_start, chunk_end, text_so_far])
+        if on_block is not None:
+            on_block(chunk_start, chunk_end, text_so_far)
+
+    for w in words:
+        if chunk_start is None:
+            chunk_start = w["start"]
+
+        current_chunk_words.append(w)
+        text_so_far = "".join([x["word"] for x in current_chunk_words]).strip()
+        ends_with_punct = w["word"].strip().endswith(punct)
+
+        if len(text_so_far) >= max_chars or ends_with_punct:
+            _flush(w["end"])
+            current_chunk_words = []
+            chunk_start = None
+        elif w.get("seg_end"):
+            # Eski koddaki "segment bitti, tamponda kalan varsa yaz" adımı.
+            _flush(w["end"])
+            current_chunk_words = []
+            chunk_start = None
+
+    if current_chunk_words:
+        _flush(current_chunk_words[-1]["end"])
+    return blocks
+
+
+class TranscriptionEngine:
+    """Motor arayüzü. transcribe() ortak kelime sözleşmesini döndürür.
+
+    Günlük/durum geri çağrıları kurucudan verilir; böylece transcribe()
+    imzası sade kalır ve motor Tkinter'a hiç dokunmaz (worker thread'de
+    çalışır, tüm iletişim app tarafındaki queue üzerinden akar).
+    """
+    key = "base"
+
+    def __init__(self, logt=None, log=None, status=None):
+        self._logt = logt or (lambda *a: None)
+        self._log = log or (lambda *a: None)
+        self._status = status or (lambda *a: None)
+        self.opts = {}
+        self.detected_lang = ""
+
+    def configure(self, opts):
+        """Çalıştırmaya özel ayarlar (model, beam, vad, api_key…)."""
+        self.opts = opts or {}
+
+    def prepare(self, stop_event=None):
+        """Ağır hazırlık (model yükleme / istemci kurulumu). Batch'te bir kez."""
+
+    def transcribe(self, audio_path, language, vocab_hint, progress_cb, stop_event):
+        raise NotImplementedError
+
+    def release(self):
+        """Kaynakları bırak (VRAM vb.)."""
+
+
+# --------------------------------------------------------------- WHISPER
+class WhisperEngine(TranscriptionEngine):
+    """Mevcut faster-whisper akışı. Model önbelleği, VRAM tahliye
+    protokolü, CPU fallback ve VAD ön-taraması BİREBİR korundu."""
+    key = "whisper"
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self.model = None
+        self._model_key = None
+
+    # --- VAD ön-taraması yardımcıları (bkz. CLAUDE.md) ---
+    @staticmethod
+    def vad_chunks(audio, threshold):
+        from faster_whisper.vad import VadOptions, get_speech_timestamps
+        return get_speech_timestamps(audio, VadOptions(
+            threshold=threshold, min_silence_duration_ms=300, speech_pad_ms=100))
+
+    @staticmethod
+    def decode(audio_path):
+        from faster_whisper.audio import decode_audio
+        return decode_audio(audio_path, sampling_rate=VAD_SR)
+
+    def _vad_scan(self, video_path, threshold):
+        """(ses_dizisi, konuşma_parçaları) döndürür. faster-whisper'ın iç
+        modülleri değişirse None döner → eski (tarama yapmayan) yola düşülür."""
+        try:
+            audio = self.decode(video_path)
+            return audio, self.vad_chunks(audio, threshold)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _speech_map(chunks):
+        """VAD parçalarından (başlangıçlar, bitişler, kümülatif konuşma, toplam)."""
+        starts, ends, cum, total = [], [], [], 0.0
+        for c in chunks:
+            s, e = c["start"] / VAD_SR, c["end"] / VAD_SR
+            starts.append(s)
+            ends.append(e)
+            cum.append(total)
+            total += e - s
+        return starts, ends, cum, total
+
+    # --- model yükleme: VRAM tahliyesi + CPU fallback (BİREBİR) ---
+    def prepare(self, stop_event=None):
+        from faster_whisper import WhisperModel
+
+        model_size = self.opts.get("model", MODEL_SIZE)
+        device, compute = DEVICE, COMPUTE_TYPE
+        try:
+            import ctranslate2
+            if ctranslate2.get_cuda_device_count() < 1:
+                device, compute = "cpu", "int8"
+                self._logt("cpu_fb")
+        except Exception:
+            pass
+
+        key = (model_size, device, compute)
+        if self.model is None or self._model_key != key:
+            # VRAM tahliye protokolu: yeni modeli yuklemeden ONCE eskisini
+            # bellekten bosalt. Aksi halde dusuk VRAM'li GPU'larda (6 GB)
+            # eski + yeni model bir an icin ayni anda bellekte olur -> OOM.
+            if self.model is not None:
+                del self.model
+                self.model = None
+                self._model_key = None
+                gc.collect()
+            self._logt("loading_model", model_size, device, compute)
+            self._logt("first_use")
+            self.model = WhisperModel(model_size, device=device, compute_type=compute)
+            self._model_key = key
+            self._logt("model_ready")
+
+    def release(self):
+        if self.model is not None:
+            del self.model
+            self.model = None
+            self._model_key = None
+            gc.collect()
+
+    def transcribe(self, audio_path, language, vocab_hint, progress_cb, stop_event):
+        opts = self.opts
+        self._status("st_analyzing", "accent")
+        vad_threshold = opts.get("vad_threshold", 0.5)
+
+        # --- VAD ön-taraması: ilerleme ölçümü + "sessiz dosya" teşhisi -----
+        audio, chunks, speech_dur = None, None, 0.0
+        scan = self._vad_scan(audio_path, vad_threshold)
+        if scan is not None:
+            audio, chunks = scan
+        scan = None  # ham sesi tutan ikinci referansı bırak
+        if audio is not None:
+            full_dur = len(audio) / VAD_SR
+            speech_dur = sum(c["end"] - c["start"] for c in chunks) / VAD_SR
+            ratio = (speech_dur / full_dur) if full_dur else 0.0
+            self._logt("vad_scan", format_timestamp(speech_dur),
+                       format_timestamp(full_dur), f"{ratio * 100:.1f}")
+
+            # Kurtarma: uzun bir dosyanın neredeyse tamamı elendiyse daha
+            # geçirgen bir eşikle yeniden tara. Yalnızca KAYDA DEĞER kazanç
+            # varsa benimse; aksi halde ilk tarama korunur ve çıktı önceki
+            # sürümle birebir aynı kalır (boğuk/kısık konuşmayı kurtarır,
+            # gerçekten müzik olan dosyayı halüsinasyona boğmaz).
+            if (full_dur >= VAD_RESCUE_MIN_DUR and ratio < VAD_RESCUE_RATIO
+                    and vad_threshold > VAD_RESCUE_THRESHOLD):
+                self._logt("vad_rescue", VAD_RESCUE_THRESHOLD)
+                try:
+                    r_chunks = self.vad_chunks(audio, VAD_RESCUE_THRESHOLD)
+                except Exception:
+                    r_chunks = []
+                r_dur = sum(c["end"] - c["start"] for c in r_chunks) / VAD_SR
+                r_ratio = (r_dur / full_dur) if full_dur else 0.0
+                if r_dur >= speech_dur * 3 and r_ratio >= VAD_RESCUE_ACCEPT:
+                    chunks, speech_dur, ratio = r_chunks, r_dur, r_ratio
+                    vad_threshold = VAD_RESCUE_THRESHOLD
+                    self._logt("vad_rescue_ok", format_timestamp(r_dur),
+                               f"{r_ratio * 100:.1f}")
+                else:
+                    self._logt("vad_rescue_fail")
+
+            # Kurtarma denendi ya da denenmedi; dosya hâlâ sessizse kullanıcıya
+            # bunun bir hata olmadığını açıkça söyle.
+            if full_dur >= VAD_RESCUE_MIN_DUR and ratio < VAD_RESCUE_RATIO:
+                self._logt("vad_no_speech")
+
+        if stop_event is not None and stop_event.is_set():
+            raise _Cancelled()
+
+        source = audio_path if audio is None else audio
+        segments, info = self.model.transcribe(
+            source,
+            beam_size=opts.get("beam_size", 10),
+            language=language,
+            initial_prompt=vocab_hint,
+            vad_filter=True,
+            vad_parameters=dict(
+                threshold=vad_threshold,
+                min_silence_duration_ms=300,
+                speech_pad_ms=100,
+            ),
+            word_timestamps=True,
+            condition_on_previous_text=False,
+        )
+        # transcribe() mel özniteliklerini dönmeden ÖNCE üretir; ham ses artık
+        # gereksiz. Uzun dosyalarda yüzlerce MB tutmamak için referansları bırak.
+        source = None
+        audio = None
+
+        duration = info.duration or 0
+        self.detected_lang = f"{info.language} ({info.language_probability:.0%})"
+        self._logt("detected", self.detected_lang, format_timestamp(duration))
+        self._status("st_generating", "accent")
+
+        # İlerleme ölçüsü = VAD'in tuttuğu KONUŞMA süresi, toplam süre değil.
+        starts = ends = cum = None
+        if chunks:
+            starts, ends, cum, speech_dur = self._speech_map(chunks)
+        prog_total = speech_dur if speech_dur > 0 else duration
+
+        def _consumed(t):
+            """Orijinal zaman çizgisindeki t anına kadar işlenmiş konuşma süresi."""
+            i = bisect.bisect_left(ends, t)
+            if i >= len(ends):
+                return prog_total
+            return cum[i] if t <= starts[i] else cum[i] + (t - starts[i])
+
+        words = []
+        for segment in segments:
+            if stop_event is not None and stop_event.is_set():
+                raise _Cancelled()
+            seg_words = segment.words or []
+            last = len(seg_words) - 1
+            for i, w in enumerate(seg_words):
+                words.append({"word": w.word, "start": w.start, "end": w.end,
+                              "seg_end": i == last})
+            if prog_total:
+                done_t = _consumed(segment.end) if ends else segment.end
+                progress_cb(min(max(float(done_t) / prog_total, 0.0), 1.0), len(words))
+
+        progress_cb(1.0, len(words))
+        return words
+
+
+# ---------------------------------------------------------------- GEMINI
+def _attr(obj, name, default=None):
+    """SDK nesnesi ya da düz dict — ikisinden de alan okur."""
+    if isinstance(obj, dict):
+        return obj.get(name, default)
+    return getattr(obj, name, default)
+
+
+def _offset_to_sec(v):
+    """Gemini süre alanı -> saniye. '0.100s' / '1s' biçiminde STRING gelir;
+    sayı ya da protobuf Duration (seconds+nanos) ihtimaline karşı toleranslı."""
+    if v is None:
+        return None
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, (int, float)):
+        return float(v)
+    if isinstance(v, str):
+        s = v.strip()
+        if s.endswith("s"):
+            s = s[:-1]
+        try:
+            return float(s)
+        except ValueError:
+            return None
+    sec = _attr(v, "seconds")
+    nanos = _attr(v, "nanos", 0) or 0
+    if sec is None:
+        return None
+    try:
+        return float(sec) + float(nanos) / 1e9
+    except (TypeError, ValueError):
+        return None
+
+
+def gemini_error_kind(e):
+    """Ham exception'ı kullanıcıya gösterilebilir bir sınıfa indirger.
+    Yeniden denenebilir olanlar: 'rate' ve 'server'."""
+    code = _attr(e, "code") or _attr(e, "status_code") or _attr(e, "status")
+    msg = f"{type(e).__name__}: {e}".lower()
+    if "quota" in msg or "billing" in msg:
+        return "quota"
+    if code == 429 or "429" in msg or "resource_exhausted" in msg or "rate limit" in msg:
+        return "rate"
+    if code in (500, 502, 503, 504) or "unavailable" in msg or "internal error" in msg:
+        return "server"
+    if (code in (401, 403) or "api key" in msg or "api_key" in msg
+            or "unauthenticated" in msg or "permission_denied" in msg):
+        return "auth"
+    if (isinstance(e, OSError) or "connection" in msg or "timed out" in msg
+            or "timeout" in msg or "network" in msg or "name resolution" in msg):
+        return "net"
+    return "other"
+
+
+def vocab_terms(hint, limit=GEMINI_VOCAB_MAX):
+    """Terim ipucunu virgül/noktalı virgül/satır sonundan ayırır, temizler,
+    yinelenenleri atar ve ilk `limit` terimi döndürür."""
+    if not hint:
+        return []
+    seen, out = set(), []
+    for part in re.split(r"[,;\n]", hint):
+        term = part.strip()
+        if not term or term.lower() in seen:
+            continue
+        seen.add(term.lower())
+        out.append(term)
+        if len(out) >= limit:
+            break
+    return out
+
+
+class GeminiEngine(TranscriptionEngine):
+    """Google Gemini 3.5 Transcribe (bulut). Kelime zaman damgası için
+    mode.type MUTLAKA 'verbatim' — 'smart' zaman damgasıyla uyumsuz."""
+    key = "gemini"
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self._client = None
+
+    @staticmethod
+    def available():
+        """SDK kurulu mu? Kurulu değilse uygulama yine açılır, motor kapalı görünür."""
+        try:
+            import importlib.util
+            return importlib.util.find_spec("google.genai") is not None
+        except Exception:
+            return False
+
+    # --- istemci / anahtar ---
+    def prepare(self, stop_event=None):
+        key = gemini_api_key(self.opts.get("api_key"))
+        if not key:
+            raise EngineError("gem_err_nokey")
+        try:
+            from google import genai
+        except Exception as e:
+            raise EngineError("gem_err_nosdk", str(e))
+        try:
+            self._client = genai.Client(api_key=key)
+        except Exception as e:
+            raise EngineError(_ERR_KEYS.get(gemini_error_kind(e), "gem_err_other"), str(e))
+        self.detected_lang = ""
+        self._logt("gem_ready", GEMINI_MODEL)
+
+    def release(self):
+        self._client = None
+
+    # --- yeniden deneme: 429 / 5xx için üstel geri çekilme ---
+    def _retry(self, fn, stop_event):
+        delay = GEMINI_BACKOFF_BASE
+        for attempt in range(GEMINI_RETRIES):
+            if stop_event is not None and stop_event.is_set():
+                raise _Cancelled()
+            try:
+                return fn()
+            except _Cancelled:
+                raise
+            except Exception as e:
+                kind = gemini_error_kind(e)
+                if kind not in ("rate", "server") or attempt == GEMINI_RETRIES - 1:
+                    raise EngineError(_ERR_KEYS.get(kind, "gem_err_other"), str(e))
+                self._logt("gem_retry", attempt + 1, GEMINI_RETRIES, int(delay))
+                if stop_event is not None:
+                    if stop_event.wait(delay):
+                        raise _Cancelled()
+                else:
+                    time.sleep(delay)
+                delay *= 2
+
+    # --- ses hazırlığı: sistem ffmpeg'i YOK, PyAV kullanılır --------------
+    # faster-whisper'ın decode_audio'su PyAV ile gelir (FFmpeg kütüphaneleri
+    # gömülü) → harici ffmpeg/ffprobe kurulumu gerekmez, süre de buradan çıkar.
+    @staticmethod
+    def _write_wav(samples, path):
+        import wave
+        import numpy as np
+        pcm = (np.clip(samples, -1.0, 1.0) * 32767.0).astype("<i2")
+        with wave.open(path, "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(VAD_SR)
+            w.writeframes(pcm.tobytes())
+
+    @staticmethod
+    def _split_points(total, chunks):
+        """Sesi GEMINI_MAX_CHUNK_SEC'i aşmayan parçalara böler; bölme noktasını
+        mümkünse SESSİZLİĞE denk getirir (kelime ortasında kesmemek için)."""
+        if total <= GEMINI_MAX_CHUNK_SEC:
+            return [(0.0, total)]
+
+        # Konuşma parçaları arasındaki boşluklar = sessizlik adayları.
+        # Son konuşmadan SONRAKİ sessizlik aday değildir: oradan bölmek yalnızca
+        # tamamen sessiz bir kuyruk parçası üretir. (Ayrıca chunks boşken tüm
+        # dosyayı tek bir dev "boşluk" saymamış oluruz.)
+        gaps, prev_end = [], 0.0
+        for c in chunks or []:
+            s = c["start"] / VAD_SR
+            if s - prev_end >= GEMINI_MIN_GAP:
+                gaps.append((prev_end + s) / 2.0)
+            prev_end = c["end"] / VAD_SR
+
+        points = [0.0]
+        while total - points[-1] > GEMINI_MAX_CHUNK_SEC:
+            target = points[-1] + GEMINI_MAX_CHUNK_SEC
+            # Sessizlik ararken hedeften en fazla GEMINI_SPLIT_SEARCH kadar geri
+            # git; yoksa erken bir boşluğa kayıp gereksiz yere çok parça üretiriz.
+            floor = max(points[-1] + GEMINI_MIN_CHUNK_SEC,
+                        target - GEMINI_SPLIT_SEARCH)
+            best = None
+            for mid in gaps:
+                if floor <= mid <= target and (best is None or mid > best):
+                    best = mid
+            points.append(best if best is not None else target)
+        points.append(total)
+        return list(zip(points[:-1], points[1:]))
+
+    # --- API çağrısı + ayrıştırma ---
+    @staticmethod
+    def _parse_words(interaction):
+        out = []
+        for step in _attr(interaction, "steps") or []:
+            for content in _attr(step, "content") or []:
+                for ann in _attr(content, "annotations") or []:
+                    if _attr(ann, "type") != "word_info":
+                        continue
+                    text = _attr(ann, "text")
+                    s = _offset_to_sec(_attr(ann, "start_offset"))
+                    e = _offset_to_sec(_attr(ann, "end_offset"))
+                    if not text or s is None or e is None:
+                        continue
+                    # Ortak sözleşme Whisper token'ı biçimindedir: kelimenin
+                    # BAŞINDA boşluk bulunur (" Merhaba"). Dilimleyici "" ile
+                    # birleştirip strip'lediği için Gemini'nin çıplak kelimesine
+                    # bu boşluğu eklemezsek tüm metin bitişik çıkar.
+                    text = str(text).strip()
+                    if not text:
+                        continue
+                    out.append({"word": " " + text, "start": float(s), "end": float(e)})
+        out.sort(key=lambda w: (w["start"], w["end"]))
+        return out
+
+    def _transcribe_part(self, wav_path, lang_codes, vocab, stop_event):
+        """Tek parçayı yükle → çevir → uzak dosyayı MUTLAKA sil."""
+        client = self._client
+        uploaded = None
+        try:
+            uploaded = self._retry(lambda: client.files.upload(file=wav_path), stop_event)
+            cfg = {
+                "transcription_config": {
+                    "language_codes": lang_codes,
+                    "custom_vocabulary": vocab,
+                    "mode": {
+                        "type": "verbatim",   # 'smart' kelime zaman damgasıyla uyumsuz
+                        "timestamp_granularities": ["word"],
+                    },
+                }
+            }
+            interaction = self._retry(lambda: client.interactions.create(
+                model=GEMINI_MODEL,
+                input=[{"type": "audio",
+                        "uri": _attr(uploaded, "uri"),
+                        "mime_type": _attr(uploaded, "mime_type")}],
+                generation_config=cfg), stop_event)
+            return self._parse_words(interaction)
+        finally:
+            name = _attr(uploaded, "name") if uploaded is not None else None
+            if name:
+                try:
+                    client.files.delete(name=name)
+                except Exception:
+                    pass
+
+    def transcribe(self, audio_path, language, vocab_hint, progress_cb, stop_event):
+        import shutil
+        import tempfile
+
+        if self._client is None:
+            self.prepare(stop_event)
+
+        self._status("st_analyzing", "accent")
+        try:
+            audio = WhisperEngine.decode(audio_path)
+        except Exception as e:
+            raise EngineError("gem_err_audio", str(e))
+
+        total = len(audio) / VAD_SR
+        try:
+            chunks = WhisperEngine.vad_chunks(audio, 0.5)
+        except Exception:
+            chunks = []
+        parts = self._split_points(total, chunks)
+
+        lang_codes = [BCP47.get(language, language)] if language else []
+        vocab = vocab_terms(vocab_hint)
+        self.detected_lang = lang_codes[0] if lang_codes else "auto"
+        self._logt("gem_audio", format_timestamp(total), self.detected_lang, len(vocab))
+        if len(parts) > 1:
+            self._logt("gem_split", len(parts), int(GEMINI_MAX_CHUNK_SEC // 60))
+
+        self._status("st_generating", "accent")
+        words = []
+        tmpdir = tempfile.mkdtemp(prefix="autosrt_gemini_")
+        try:
+            for i, (a, b) in enumerate(parts):
+                if stop_event is not None and stop_event.is_set():
+                    raise _Cancelled()
+                wav = os.path.join(tmpdir, "part%03d.wav" % i)
+                self._write_wav(audio[int(a * VAD_SR):int(b * VAD_SR)], wav)
+                if len(parts) > 1:
+                    self._logt("gem_part", i + 1, len(parts),
+                               format_timestamp(a), format_timestamp(b))
+                part_words = self._transcribe_part(wav, lang_codes, vocab, stop_event)
+                # Parça ofsetini EKLE: API her parçayı 0'dan başlatır.
+                for w in part_words:
+                    w["start"] += a
+                    w["end"] += a
+                words.extend(part_words)
+                try:
+                    os.remove(wav)
+                except OSError:
+                    pass
+                progress_cb((i + 1) / len(parts), len(words))
+        finally:
+            audio = None
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+        if not words:
+            self._logt("gem_no_words")
+            return []
+
+        # Parça sınırlarında zaman damgası çakışması olmadığını doğrula/onar.
+        fixed = 0
+        for i in range(1, len(words)):
+            if words[i]["start"] < words[i - 1]["end"]:
+                words[i - 1]["end"] = max(words[i - 1]["start"],
+                                          words[i]["start"] - 0.001)
+                fixed += 1
+        if fixed:
+            self._logt("gem_overlap", fixed)
+
+        # Uzun duraklamaları segment sınırı say → dilimleyici orada boşaltır
+        # (Whisper'daki segment sonu davranışının Gemini karşılığı).
+        for i, w in enumerate(words):
+            nxt = words[i + 1] if i + 1 < len(words) else None
+            w["seg_end"] = nxt is None or (nxt["start"] - w["end"]) >= GEMINI_SEG_GAP
+
+        self._logt("gem_words", len(words))
+        return words
+
+
+# Hata sınıfı -> i18n anahtarı
+_ERR_KEYS = {
+    "auth": "gem_err_auth",
+    "rate": "gem_err_rate",
+    "quota": "gem_err_quota",
+    "server": "gem_err_server",
+    "net": "gem_err_net",
+    "other": "gem_err_other",
+}
+
+
 class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
     def __init__(self):
         super().__init__()
@@ -392,8 +1147,8 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
 
         self.files = []                 # sıradaki dosya yolları
         self.is_running = False
-        self.model = None
-        self._model_key = None
+        self._engine = "whisper"        # varsayılan motor: yerel Whisper
+        self._engines = {}              # motor örnekleri (Whisper model önbelleği burada yaşar)
         self.log_queue = queue.Queue()
         self.cancel_event = threading.Event()
         self.last_srt = None
@@ -484,7 +1239,15 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.brand_rule = ctk.CTkFrame(sb, height=2, corner_radius=2, fg_color=self.accent)
         self.brand_rule.grid(row=r, column=0, sticky="ew", padx=20, pady=(2, 16)); r += 1
 
-        # MODEL
+        # MOTOR (Whisper yerel / Gemini bulut)
+        self.cap_engine = self._caption(sb, r, "engine"); r += 1
+        self.engine_seg = ctk.CTkSegmentedButton(
+            sb, values=[self.t("engine_whisper"), self.t("engine_gemini")],
+            command=self._on_engine, height=34, font=ctk.CTkFont(FONT_UI, 12))
+        self.engine_seg.grid(row=r, column=0, sticky="ew", padx=20, pady=(2, 14)); r += 1
+        self._rebuild_engine_seg()
+
+        # MODEL (yalnız Whisper seçiliyken görünür)
         self.cap_model = self._caption(sb, r, "model"); r += 1
         self.model_var = ctk.StringVar(value=MODEL_SIZE)
         self.model_menu = ctk.CTkOptionMenu(
@@ -494,6 +1257,19 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
             text_color=TEXT, dropdown_text_color=TEXT,
             font=ctk.CTkFont(FONT_UI, 13), dropdown_font=ctk.CTkFont(FONT_UI, 13))
         self.model_menu.grid(row=r, column=0, sticky="ew", padx=20, pady=(2, 14)); r += 1
+
+        # GEMINI API ANAHTARI (yalnız Gemini seçiliyken görünür)
+        self.cap_key = self._caption(sb, r, "api_key"); r += 1
+        self.key_entry = ctk.CTkEntry(sb, placeholder_text=self.t("api_key_ph"),
+                                      show="•", height=36, corner_radius=10,
+                                      fg_color=SURFACE2, border_color=BORDER,
+                                      text_color=TEXT, font=ctk.CTkFont(FONT_UI, 12))
+        self.key_entry.grid(row=r, column=0, sticky="ew", padx=20, pady=(2, 6)); r += 1
+        self.key_note = ctk.CTkLabel(sb, text=self.t("cloud_warn"), text_color=WARN,
+                                     font=ctk.CTkFont(FONT_UI, 11), anchor="w",
+                                     wraplength=210, justify="left")
+        self.key_note.grid(row=r, column=0, sticky="ew", padx=20, pady=(0, 14)); r += 1
+        self._apply_engine_visibility()
 
         # KAYNAK DİL
         self.cap_src = self._caption(sb, r, "src_lang"); r += 1
@@ -675,6 +1451,68 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
 
     def _on_src_select(self, value):
         self._cur_src_code = self._src_codes.get(value)
+
+    # ----------------------------------------------------- motor seçimi
+    def _rebuild_engine_seg(self):
+        """Motor segmentini kurar; etiketler arayüz diline göre güncellenir."""
+        wsp, gem = self.t("engine_whisper"), self.t("engine_gemini")
+        self._engine_labels = {wsp: "whisper", gem: "gemini"}
+        self.engine_seg.configure(values=[wsp, gem])
+        self.engine_seg.set(gem if self._engine == "gemini" else wsp)
+
+    def _on_engine(self, value):
+        key = self._engine_labels.get(value, "whisper")
+        if key == "gemini":
+            # SDK yoksa motor seçilemez; seçim Whisper'a geri alınır.
+            if not GeminiEngine.available():
+                self._logt("gem_err_nosdk")
+                self._engine = "whisper"
+                self._rebuild_engine_seg()
+                self._apply_engine_visibility()
+                return
+            if not gemini_api_key(self.key_entry.get().strip()):
+                self._logt("gem_err_nokey")
+            elif os.environ.get("GEMINI_API_KEY"):
+                self._logt("key_from_env")
+        if key != self._engine and key == "gemini":
+            # Buluta geçildi: Whisper modelini VRAM'de tutmanın anlamı yok.
+            # (6 GB'lık kartlarda large-v3 ~3 GB yer kaplar.) Geri dönülürse
+            # model yeniden yüklenir ve bunu günlükte "Model yükleniyor" gösterir.
+            w = self._engines.get("whisper")
+            if w is not None:
+                w.release()
+        self._engine = key
+        self._apply_engine_visibility()
+
+    def _apply_engine_visibility(self):
+        """Whisper → model seçici; Gemini → anahtar alanı + bulut uyarısı."""
+        gem = self._engine == "gemini"
+        for w in (self.cap_model, self.model_menu):
+            w.grid_remove() if gem else w.grid()
+        for w in (self.cap_key, self.key_entry, self.key_note):
+            w.grid() if gem else w.grid_remove()
+
+    def _get_engine(self, key):
+        """Motor örneğini önbellekten verir (Whisper modeli böylece hayatta kalır)."""
+        if key not in self._engines:
+            cls = GeminiEngine if key == "gemini" else WhisperEngine
+            self._engines[key] = cls(logt=self._logt, log=self._log,
+                                     status=self._engine_status)
+        return self._engines[key]
+
+    def _engine_status(self, key, kind):
+        self.q(("status", key, WARN if kind == "warn" else self.accent))
+
+    @staticmethod
+    def _set_seg_state(seg, state):
+        """CTkSegmentedButton bu sürümde configure(state=…)/cget("state")
+        desteklemiyor (CTkFrame'e iletilip ValueError atıyor). Alttaki
+        düğmeleri doğrudan kilitleriz; iç yapı değişirse sessizce geçilir."""
+        try:
+            for b in seg._buttons_dict.values():
+                b.configure(state=state)
+        except Exception:
+            pass
 
     def _rebuild_speed_seg(self):
         """Hız profili segmentini kurar; etiketler arayüz diline göre güncellenir."""
@@ -866,6 +1704,7 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.src_menu.configure(button_color=accent, button_hover_color=hover)
         self.post_menu.configure(button_color=accent, button_hover_color=hover)
         self.speed_seg.configure(selected_color=accent, selected_hover_color=hover)
+        self.engine_seg.configure(selected_color=accent, selected_hover_color=hover)
         self.progress.configure(progress_color=accent)
         self.percent_lbl.configure(text_color=accent)
         self.char_val.configure(text_color=accent)
@@ -905,6 +1744,11 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
                             text_color=MUTED, border_width=1, border_color=BORDER)
 
     def _retext(self):
+        self.cap_engine.configure(text=self.t("engine"))
+        self._rebuild_engine_seg()
+        self.cap_key.configure(text=self.t("api_key"))
+        self.key_entry.configure(placeholder_text=self.t("api_key_ph"))
+        self.key_note.configure(text=self.t("cloud_warn"))
         self.cap_model.configure(text=self.t("model"))
         self.cap_src.configure(text=self.t("src_lang"))
         self._rebuild_src_menu()
@@ -1108,12 +1952,25 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
             self._logt("no_format")
             return
 
+        # Gemini ön koşulları: SDK + anahtar. Eksikse iş hiç başlamaz.
+        api_key = self.key_entry.get().strip()
+        if self._engine == "gemini":
+            if not GeminiEngine.available():
+                self._logt("gem_err_nosdk")
+                return
+            if not gemini_api_key(api_key):
+                self._logt("gem_err_nokey")
+                return
+            save_secret("gemini_api_key", api_key)
+
         # VAD eşiği: hassasiyet 50 → 0.5 (faster-whisper varsayılanı, çıktı birebir aynı);
         # yüksek hassasiyet → düşük eşik (sessiz/boğuk konuşmayı da yakalar).
         sens = int(self.vad_slider.get())
         vad_threshold = round(min(0.9, max(0.1, 0.5 - (sens - 50) / 100.0 * 0.4)), 3)
 
         opts = {
+            "engine": self._engine,
+            "api_key": api_key,
             "model": self.model_var.get(),
             "max_chars": int(self.char_slider.get()),
             "min_dur": round(self.min_slider.get(), 1),
@@ -1133,6 +1990,7 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.percent_lbl.configure(text="0%")
         self._log("─" * 56)
         self._logt("starting")
+        self._logt("engine_line", self._engine)   # ad çevrim anında çözülür
         self._logt("settings_line", opts["max_chars"], f"{opts['min_dur']:.1f}",
                    opts["sentence_only"], ", ".join(f.upper() for f in formats))
         threading.Thread(target=self._batch_worker,
@@ -1196,6 +2054,8 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
             "lang": self.lang,
             "appearance": ctk.get_appearance_mode().lower(),
             "accent": self._accent_name,
+            "engine": self._engine,
+            # DİKKAT: API anahtarı BURAYA yazılmaz; ayrı secrets.json'da durur.
             "model": self.model_var.get(),
             "src_lang": self._cur_src_code,
             "speed": self._speed,
@@ -1218,6 +2078,11 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
                 json.dump(self._collect_settings(), f, ensure_ascii=False, indent=2)
         except Exception:
             pass
+        # Anahtar ayrı dosyaya (ve yalnızca ortam değişkeni yoksa anlamlı).
+        try:
+            save_secret("gemini_api_key", self.key_entry.get().strip())
+        except Exception:
+            pass
 
     def _load_settings(self):
         try:
@@ -1237,6 +2102,16 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
             self.appear_seg.set("☾" if mode == "dark" else "☀")
         if d.get("accent") in ACCENTS:
             self._set_accent(d["accent"])
+        # Motor: SDK yoksa Gemini seçimi sessizce Whisper'a düşer.
+        eng = d.get("engine")
+        if eng in ENGINES:
+            self._engine = eng if (eng != "gemini" or GeminiEngine.available()) else "whisper"
+        saved_key = load_secret("gemini_api_key")
+        if saved_key:
+            self.key_entry.delete(0, "end")
+            self.key_entry.insert(0, saved_key)
+        self._rebuild_engine_seg()
+        self._apply_engine_visibility()
         if d.get("model") in MODEL_SIZES:
             self.model_var.set(d["model"])
         if "src_lang" in d:
@@ -1281,34 +2156,14 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
     # ============================================= ARKA PLAN TRANSCRIBE (THREAD)
     def _batch_worker(self, files, opts):
         try:
-            from faster_whisper import WhisperModel
-
-            device, compute = DEVICE, COMPUTE_TYPE
-            try:
-                import ctranslate2
-                if ctranslate2.get_cuda_device_count() < 1:
-                    device, compute = "cpu", "int8"
-                    self._logt("cpu_fb")
-            except Exception:
-                pass
+            # Motor seçimi: örnek önbellekte yaşar (Whisper modeli batch'ler
+            # arasında bellekte kalsın diye). Ağır hazırlık burada, bir kez.
+            engine = self._get_engine(opts["engine"])
+            engine.configure(opts)
 
             self.q(("status", "st_loading", WARN))
             self.q(("progress", None))
-            key = (opts["model"], device, compute)
-            if self.model is None or self._model_key != key:
-                # VRAM tahliye protokolu: yeni modeli yuklemeden ONCE eskisini
-                # bellekten bosalt. Aksi halde dusuk VRAM'li GPU'larda (6 GB)
-                # eski + yeni model bir an icin ayni anda bellekte olur -> OOM.
-                if self.model is not None:
-                    del self.model
-                    self.model = None
-                    self._model_key = None
-                    gc.collect()
-                self._logt("loading_model", opts["model"], device, compute)
-                self._logt("first_use")
-                self.model = WhisperModel(opts["model"], device=device, compute_type=compute)
-                self._model_key = key
-                self._logt("model_ready")
+            engine.prepare(self.cancel_event)
             if self.cancel_event.is_set():
                 raise _Cancelled()
 
@@ -1320,7 +2175,7 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
                 self._log("─" * 56)
                 self._logt("file_log", fi + 1, total, os.path.basename(path))
 
-                blocks = self._transcribe_one(path, opts, fi, total)
+                blocks = self._transcribe_one(engine, path, opts, fi, total)
 
                 # Önizleme/düzenleme (toggle açıksa): worker burada GUI'yi bekler.
                 # ev.wait() timeout'lu döngüde; kullanıcı "Durdur"a basarsa düzenleyici
@@ -1364,80 +2219,41 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         except _Cancelled:
             self._logt("cancelled")
             self.q(("cancelled", None))
+        except EngineError as e:
+            # Ham exception kullanıcıya gösterilmez: anlaşılır mesaj + günlükte detay.
+            self._logt(e.key)
+            if e.detail:
+                self._log(f"✕ {e.detail}")
+            self.q(("error", e.key))
         except Exception as e:
             self._log(f"✕ {type(e).__name__}: {e}")
             self.q(("error", str(e)))
 
-    def _transcribe_one(self, video_path, opts, fi, total):
-        self.q(("status", "st_analyzing", self.accent))
-        segments, info = self.model.transcribe(
-            video_path,
-            beam_size=opts.get("beam_size", 10),
-            language=opts["src_lang"],
-            initial_prompt=opts["initial_prompt"],
-            vad_filter=True,
-            vad_parameters=dict(
-                threshold=opts.get("vad_threshold", 0.5),
-                min_silence_duration_ms=300,
-                speech_pad_ms=100,
-            ),
-            word_timestamps=True,
-            condition_on_previous_text=False,
-        )
-
-        duration = info.duration or 0
-        lang = f"{info.language} ({info.language_probability:.0%})"
-        self._logt("detected", lang, format_timestamp(duration))
-        self.q(("status", "st_generating", self.accent))
-
+    def _transcribe_one(self, engine, path, opts, fi, total):
+        """Motordan ortak kelime listesini alır, ORTAK dilimleyiciyle bloklara
+        çevirir. Dilimleme / min-süre / sanitize iki motor için de aynıdır."""
         t0 = time.time()
-        max_chars = opts["max_chars"]
-        sentence_only = opts["sentence_only"]
-        # Hangi noktalama bölme tetikler? (sentence_only -> sadece cümle sonu)
-        punct = ('.', '?', '!') if sentence_only else ('.', ',', '?', '!', ':', ';')
 
-        blocks = []  # [start, end, text]
+        def progress_cb(frac, n_words=0):
+            # Motor iş içi ilerlemeyi 0..1 olarak bildirir; kuyruk payına çeviririz.
+            frac = min(max(float(frac), 0.0), 1.0)
+            el = time.time() - t0
+            eta = (el / frac - el) if frac > 0.01 else 0
+            self.q(("progress", (fi + frac) / total))
+            self.q(("stats", {"el": el, "eta": eta, "blocks": n_words, "unit": "w",
+                              "lang": engine.detected_lang or "-",
+                              "fi": fi + 1, "total": total}))
 
-        def _tick(end_t):
-            if duration:
-                frac = min(max(end_t / duration, 0.0), 1.0)
-                overall = (fi + frac) / total
-                el = time.time() - t0
-                eta = (el / frac - el) if frac > 0.01 else 0
-                self.q(("progress", overall))
-                self.q(("stats", {"el": el, "eta": eta, "blocks": len(blocks),
-                                  "lang": lang, "fi": fi + 1, "total": total}))
+        words = engine.transcribe(path, opts["src_lang"], opts["initial_prompt"],
+                                  progress_cb, self.cancel_event)
+        # Dosya bitti: çubuğu bu dosyanın payı kadar tam doldur (sıçrama olmasın).
+        self.q(("progress", (fi + 1.0) / total))
 
-        # --- MİKRO-DİLİMLEME DÖNGÜSÜ (yapı BİREBİR; sınır/punkt parametreli) ---
-        for segment in segments:
-            if self.cancel_event.is_set():
-                raise _Cancelled()
-            current_chunk_words = []
-            chunk_start = None
-
-            for word in segment.words:
-                if chunk_start is None:
-                    chunk_start = word.start
-
-                current_chunk_words.append(word)
-                text_so_far = "".join([w.word for w in current_chunk_words]).strip()
-                ends_with_punct = word.word.strip().endswith(punct)
-
-                if len(text_so_far) >= max_chars or ends_with_punct:
-                    chunk_end = word.end
-                    blocks.append([chunk_start, chunk_end, text_so_far])
-                    self._log(f"[{format_timestamp(chunk_start)} - {format_timestamp(chunk_end)}] {text_so_far}")
-                    current_chunk_words = []
-                    chunk_start = None
-
-            if current_chunk_words:
-                text_so_far = "".join([w.word for w in current_chunk_words]).strip()
-                chunk_end = current_chunk_words[-1].end
-                blocks.append([chunk_start, chunk_end, text_so_far])
-                self._log(f"[{format_timestamp(chunk_start)} - {format_timestamp(chunk_end)}] {text_so_far}")
-
-            _tick(segment.end)
-        # --- DÖNGÜ SONU ---
+        # --- MİKRO-DİLİMLEME: ortak dilimleyici (mantık BİREBİR) ---
+        blocks = slice_words_to_blocks(
+            words, opts["max_chars"], opts["sentence_only"],
+            on_block=lambda s, e, txt: self._log(
+                f"[{format_timestamp(s)} - {format_timestamp(e)}] {txt}"))
 
         # Okunabilirlik: çok kısa blokları en az min_dur kadar ekranda tut
         # (sonraki bloğun başlangıcına taşmadan; yalnızca uzatır, kısaltmaz).
@@ -1451,6 +2267,9 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
                     if new_end > b[1]:
                         b[1] = new_end
 
+        self.q(("stats", {"el": time.time() - t0, "eta": 0, "blocks": len(blocks),
+                          "lang": engine.detected_lang or "-",
+                          "fi": fi + 1, "total": total}))
         return blocks
 
     # ----------------------------------------------------- önizleme/düzenleme penceresi
@@ -1692,9 +2511,11 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         prefix = ""
         if d.get("total", 1) > 1:
             prefix = self.t("file_progress", d.get("fi", 1), d["total"]) + " • "
-        self.stats_lbl.configure(text=prefix + self.t("stats", _clock(d["el"]),
-                                                       _clock(d["eta"]), d["blocks"],
-                                                       d["lang"]))
+        # Transkripsiyon sırasında henüz blok yok → kelime sayısı gösterilir.
+        key = "stats_words" if d.get("unit") == "w" else "stats"
+        self.stats_lbl.configure(text=prefix + self.t(key, _clock(d["el"]),
+                                                      _clock(d["eta"]), d["blocks"],
+                                                      d["lang"]))
 
     # ----------------------------------------------------- günlük yazımı
     def _fmt_log_entry(self, entry):
@@ -1704,6 +2525,8 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         if key == "settings_line" and len(args) >= 3:
             args = list(args)
             args[2] = self.t("on") if args[2] else self.t("off")
+        elif key == "engine_line" and args:
+            args = [self.t("engine_" + str(args[0]))]
         return self.t(key, *args)
 
     def _insert_line(self, message):
@@ -1774,6 +2597,8 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         if busy:
             self.browse_btn.configure(state="disabled")
             self.model_menu.configure(state="disabled")
+            self._set_seg_state(self.engine_seg, "disabled")
+            self.key_entry.configure(state="disabled")
             self.clear_all_btn.configure(state="disabled")
             self.primary_btn.configure(text=self.t("stop"), state="normal",
                                        fg_color=RED, hover_color="#e11d48",
@@ -1782,6 +2607,8 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
             self.cancel_event.clear()
             self.browse_btn.configure(state="normal")
             self.model_menu.configure(state="normal")
+            self._set_seg_state(self.engine_seg, "normal")
+            self.key_entry.configure(state="normal")
             self.clear_all_btn.configure(state="normal")
             self.progress.stop()
             self._pb_mode = "det"
