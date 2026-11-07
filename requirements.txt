@@ -9,8 +9,13 @@ tkinterdnd2>=0.4.2
 # Windows bildirimleri (islem bitince toast)
 winotify>=1.1.0
 
-# Altyazi motoru (CUDA destekli)
+# Motor 1 (varsayilan, YEREL): faster-whisper (CUDA destekli)
 faster-whisper>=1.0.3
+
+# Motor 2 (istege bagli, BULUT): Google Gemini 3.5 Transcribe
+# Kurulu degilse uygulama yine acilir; Gemini motoru yalnizca devre disi gorunur.
+# Anahtar: GEMINI_API_KEY ortam degiskeni ya da kenar cubugundaki alan.
+google-genai>=2.20.0
 
 # --- NVIDIA CUDA 12 calisma zamani DLL'leri ---
 # DLL otonom entegrasyonu bu paketlerin "nvidia/cublas/bin" ve
