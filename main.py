@@ -62,6 +62,14 @@ for site_dir in site.getsitepackages() + [site.getusersitepackages()]:
 import customtkinter as ctk
 from tkinterdnd2 import DND_FILES, TkinterDnD
 
+# Hibrit motor çekirdeği (Whisper + Parakeet + Gemini hakem). Tkinter'a bağımlı
+# değildir; Whisper motoru ve dilimleyici aşağıdan enjekte edilir.
+from autosrt_core import pipeline as HP
+from autosrt_core import judge as GJ
+from autosrt_core import parakeet as PKE
+
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+
 
 # --- ZAMAN DAMGASI FORMATLAMA (BIREBIR KORUNDU) ---
 def format_timestamp(seconds: float):
@@ -192,9 +200,14 @@ VAD_RESCUE_RATIO = 0.02        # konusma orani bunun altindaysa dosya "sessiz" s
 VAD_RESCUE_THRESHOLD = 0.2     # kurtarma taramasinin (gecirgen) esigi
 VAD_RESCUE_ACCEPT = 0.05       # kurtarma ancak bu orana ulasirsa benimsenir
 
-# --- MOTORLAR ---
-# Varsayilan Whisper (yerel) kalir; Gemini bulut motoru ikinci secenektir.
-ENGINES = ("whisper", "gemini")
+# --- MOTOR MODLARI ---
+#   whisper           : mevcut yol (birebir) — yalnız faster-whisper
+#   whisper_parakeet  : + Parakeet; anlaşmazlıklar editörde işaretlenir (yerel)
+#   hybrid            : + Gemini hakem → düzeltilmiş kaynak SRT + Türkçe SRT (varsayılan)
+#   gemini            : Gemini 3.5 Transcribe bulut motoru (v1.6)
+ENGINES = ("whisper", "whisper_parakeet", "hybrid", "gemini")
+PIPELINE_MODES = ("whisper_parakeet", "hybrid")
+DEFAULT_MODE = "hybrid"
 
 # --- GEMINI 3.5 TRANSCRIBE ---
 GEMINI_MODEL = "gemini-3.5-transcribe"
@@ -253,6 +266,11 @@ FAINT       = ("#8b94a3", "#45454f")
 GREEN = "#16a34a"
 RED   = "#f43f5e"
 WARN  = "#d97706"
+PURPLE = "#8b5cf6"
+# Editör işaret zeminleri (açık, koyu): anlaşmazlık / düşük güven / doğrulanamadı
+FLAG_DIS = ("#fde68a", "#4a3b12")
+FLAG_LOW = ("#fecaca", "#4c1d24")
+FLAG_UNV = ("#ddd6fe", "#33264d")
 # Günlük paneli: açık modda yumuşak gri, koyu modda gömülü terminal koyusu
 TERM_BG    = ("#e9edf3", "#0c0c10")
 TERM_TXT   = ("#15803d", "#9af2bd")
@@ -405,6 +423,46 @@ L = {
         "wait_server": "Gemini sunucusu meşgul — {} sn sonra tekrar",
         "wait_net": "Bağlantı yok — {} sn sonra tekrar",
         "wait_processing": "Ses Gemini'de işleniyor…",
+        # --- arayüz: motor modu / hakem ayarları ---
+        "mode_whisper": "Sadece Whisper", "mode_whisper_parakeet": "Whisper + Parakeet",
+        "mode_hybrid": "Whisper + Parakeet + Gemini", "mode_gemini": "Gemini Transcribe",
+        "engine_whisper_parakeet": "Whisper + Parakeet (yerel)",
+        "engine_hybrid": "Whisper + Parakeet + Gemini hakem",
+        "judge_group": "GEMINI HAKEM",
+        "gem_model": "Gemini modeli",
+        "chunk_auto": "Parça (otomatik)", "chunk_manual": "Parça (manuel)", "min": "dk",
+        "highlight_flags": "Şüpheli satırları renkle işaretle",
+        "manual_start": "Manuel mod (web sohbeti)",
+        "hybrid_note": "Ses parçaları Gemini'ye yüklenir (ücretsiz katmanda içerik Google ürünlerini geliştirmede kullanılabilir). Zaman damgaları her zaman Whisper'dan gelir.",
+        "pk_note": "Parakeet: EN, RU, FR, ES, DE (+20 Avrupa dili). Türkçe gibi desteklemediği dillerde otomatik atlanır.",
+        "to_manual": "Manuel moda geç", "to_manual_wait": "Geçiliyor…",
+        "continue_manual": "Manuel modla devam et",
+        "chip_audio": "Ses", "chip_whisper": "Whisper", "chip_parakeet": "Parakeet",
+        "chip_align": "Hizalama", "chip_gemini": "Gemini", "chip_output": "Çıktı",
+        "chip_gemini_n": "Gemini {}/{}",
+        "editor_src_title": "{} — kaynak dil ({})", "editor_tr_title": "{} — Türkçe",
+        "lg_dis": "■ iki model farklı duydu", "lg_low": "■ Gemini emin değil",
+        "lg_unv": "■ Gemini doğrulayamadı",
+        "saved_pair": "Kaydedildi: {} + {}",
+        # --- manuel sihirbaz ---
+        "mw_title": "Manuel mod — {}",
+        "mw_part": "Parça {} • {} – {} • {} satır • kalan parça: {}",
+        "mw_progress": "Tamamlanan satır: {}/{}",
+        "mw_step1": "1) Ses parçasını Gemini sohbetine sürükleyin",
+        "mw_drag": "↗ Buradan sürükleyin", "mw_show": "Klasörde göster",
+        "mw_open_gemini": "Gemini'yi aç",
+        "mw_step2": "2) Promptu kopyalayıp aynı mesaja yapıştırın, gönderin",
+        "mw_copy": "Promptu kopyala", "mw_copied": "✓ Panoya kopyalandı",
+        "mw_step3": "3) Gemini'nin cevabının TAMAMINI buraya yapıştırın",
+        "mw_validate": "Doğrula ve kaydet",
+        "mw_ok": "✓ {} satır kaydedildi.",
+        "mw_missing": "⚠ {} satır eksik/boş (id: {}) — bir sonraki pakete eklendi.",
+        "mw_parse": "✕ Cevap okunamadı (JSON yok ya da yarıda kesilmiş). Cevap kesildiyse Gemini'ye 'devam et' yazın ve tüm parçaları birlikte yapıştırın.",
+        "mw_empty": "Önce Gemini'nin cevabını yapıştırın.",
+        "mw_all_done": "✓ Tüm satırlar tamamlandı — altyazılar oluşturulabilir.",
+        "mw_finish": "Altyazıları oluştur", "mw_back_auto": "Otomatik moda dön",
+        "mw_close": "Kapat (ilerleme kayıtlı)",
+        "mw_not_ready": "Bu video için hazır satır yok — önce 'Başlat' ile ses/Whisper/Parakeet aşamalarını tamamlayın.",
     },
     "en": {
         "subtitle": "AI-Powered Subtitle Engine",
@@ -541,6 +599,46 @@ L = {
         "wait_server": "Gemini server busy — retrying in {} s",
         "wait_net": "No connection — retrying in {} s",
         "wait_processing": "Gemini is processing the audio…",
+        # --- UI: engine mode / judge settings ---
+        "mode_whisper": "Whisper only", "mode_whisper_parakeet": "Whisper + Parakeet",
+        "mode_hybrid": "Whisper + Parakeet + Gemini", "mode_gemini": "Gemini Transcribe",
+        "engine_whisper_parakeet": "Whisper + Parakeet (local)",
+        "engine_hybrid": "Whisper + Parakeet + Gemini judge",
+        "judge_group": "GEMINI JUDGE",
+        "gem_model": "Gemini model",
+        "chunk_auto": "Chunk (auto)", "chunk_manual": "Chunk (manual)", "min": "min",
+        "highlight_flags": "Highlight doubtful lines",
+        "manual_start": "Manual mode (web chat)",
+        "hybrid_note": "Audio chunks are uploaded to Gemini (on the free tier, content may be used to improve Google products). Timestamps always come from Whisper.",
+        "pk_note": "Parakeet: EN, RU, FR, ES, DE (+20 European languages). Skipped automatically for unsupported languages such as Turkish.",
+        "to_manual": "Switch to manual", "to_manual_wait": "Switching…",
+        "continue_manual": "Continue in manual mode",
+        "chip_audio": "Audio", "chip_whisper": "Whisper", "chip_parakeet": "Parakeet",
+        "chip_align": "Align", "chip_gemini": "Gemini", "chip_output": "Output",
+        "chip_gemini_n": "Gemini {}/{}",
+        "editor_src_title": "{} — source ({})", "editor_tr_title": "{} — Turkish",
+        "lg_dis": "■ models disagreed", "lg_low": "■ Gemini unsure",
+        "lg_unv": "■ Gemini could not verify",
+        "saved_pair": "Saved: {} + {}",
+        # --- manual wizard ---
+        "mw_title": "Manual mode — {}",
+        "mw_part": "Part {} • {} – {} • {} lines • parts left: {}",
+        "mw_progress": "Lines done: {}/{}",
+        "mw_step1": "1) Drag the audio chunk into the Gemini chat",
+        "mw_drag": "↗ Drag from here", "mw_show": "Show in folder",
+        "mw_open_gemini": "Open Gemini",
+        "mw_step2": "2) Copy the prompt, paste it into the same message, send",
+        "mw_copy": "Copy prompt", "mw_copied": "✓ Copied to clipboard",
+        "mw_step3": "3) Paste Gemini's ENTIRE answer here",
+        "mw_validate": "Validate & save",
+        "mw_ok": "✓ {} lines saved.",
+        "mw_missing": "⚠ {} line(s) missing/empty (id: {}) — added to the next package.",
+        "mw_parse": "✕ Could not read the answer (no JSON or cut off). If it was cut off, type 'continue' to Gemini and paste all parts together.",
+        "mw_empty": "Paste Gemini's answer first.",
+        "mw_all_done": "✓ All lines done — subtitles can be generated.",
+        "mw_finish": "Generate subtitles", "mw_back_auto": "Back to auto mode",
+        "mw_close": "Close (progress saved)",
+        "mw_not_ready": "No prepared lines for this video — press Start first to finish the audio/Whisper/Parakeet stages.",
     },
 }
 
@@ -1218,6 +1316,33 @@ _ERR_KEYS = {
 }
 
 
+class _QueueCallbacks(HP.Callbacks):
+    """Boru hattı geri çağrılarını GUI kuyruğuna çevirir (worker thread → ana thread).
+    Tkinter'a ASLA doğrudan dokunmaz."""
+    def __init__(self, app):
+        self.app = app
+        self.fi, self.total = 0, 1
+
+    def logt(self, key, *args):
+        self.app._logt(key, *args)
+
+    def log(self, text):
+        self.app._log(text)
+
+    def stage(self, key, *args):
+        self.app.q(("stage", key, args))
+
+    def progress(self, frac):
+        self.app.q(("progress", (self.fi + frac) / max(1, self.total)))
+
+    def wait(self, seconds, kind):
+        self.app.q(("wait", seconds, kind))
+
+    def stats(self, d):
+        d = dict(d, fi=self.fi + 1, total=self.total)
+        self.app.q(("stats", d))
+
+
 class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
     def __init__(self):
         super().__init__()
@@ -1225,8 +1350,13 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
 
         self.files = []                 # sıradaki dosya yolları
         self.is_running = False
-        self._engine = "whisper"        # varsayılan motor: yerel Whisper
+        self._engine = DEFAULT_MODE     # varsayılan: Whisper + Parakeet + Gemini hakem
         self._engines = {}              # motor örnekleri (Whisper model önbelleği burada yaşar)
+        self.manual_event = threading.Event()   # "Manuel moda geç" düğmesi
+        self._highlight = True          # editörde şüpheli satırları renkle işaretle
+        self._manual_offer = None       # (path, opts): hata sonrası manuel devam teklifi
+        self._mw = None                 # açık manuel sihirbaz penceresi
+        self._run_mode = None           # çalışan işin modu (manuel düğmesi için)
         self.log_queue = queue.Queue()
         self.cancel_event = threading.Event()
         self.last_srt = None
@@ -1259,6 +1389,8 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
 
         self._build_sidebar()
         self._build_main()
+        self._rebuild_engine_seg()
+        self._apply_engine_visibility()
         self._apply_accent(*ACCENTS["indigo"])
         self._load_settings()           # kayıtlı tercihleri uygula (varsa)
         self._logt("ready_msg")
@@ -1317,15 +1449,9 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.brand_rule = ctk.CTkFrame(sb, height=2, corner_radius=2, fg_color=self.accent)
         self.brand_rule.grid(row=r, column=0, sticky="ew", padx=20, pady=(2, 16)); r += 1
 
-        # MOTOR (Whisper yerel / Gemini bulut)
-        self.cap_engine = self._caption(sb, r, "engine"); r += 1
-        self.engine_seg = ctk.CTkSegmentedButton(
-            sb, values=[self.t("engine_whisper"), self.t("engine_gemini")],
-            command=self._on_engine, height=34, font=ctk.CTkFont(FONT_UI, 12))
-        self.engine_seg.grid(row=r, column=0, sticky="ew", padx=20, pady=(2, 14)); r += 1
-        self._rebuild_engine_seg()
+        # (MOTOR seçimi ana ekrana taşındı — bkz. _build_main)
 
-        # MODEL (yalnız Whisper seçiliyken görünür)
+        # MODEL (Whisper kullanan modlarda görünür)
         self.cap_model = self._caption(sb, r, "model"); r += 1
         self.model_var = ctk.StringVar(value=MODEL_SIZE)
         self.model_menu = ctk.CTkOptionMenu(
@@ -1347,7 +1473,47 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
                                      font=ctk.CTkFont(FONT_UI, 11), anchor="w",
                                      wraplength=210, justify="left")
         self.key_note.grid(row=r, column=0, sticky="ew", padx=20, pady=(0, 14)); r += 1
-        self._apply_engine_visibility()
+
+        # GEMINI HAKEM (yalnız "Whisper + Parakeet + Gemini" modunda görünür)
+        self.cap_judge = self._caption(sb, r, "judge_group"); r += 1
+        jf = ctk.CTkFrame(sb, fg_color="transparent")
+        jf.grid(row=r, column=0, sticky="ew", padx=20, pady=(0, 6)); r += 1
+        jf.grid_columnconfigure(0, weight=1)
+        self.gem_model_cap = ctk.CTkLabel(jf, text=self.t("gem_model"), text_color=MUTED,
+                                          font=ctk.CTkFont(FONT_UI, 12))
+        self.gem_model_cap.grid(row=0, column=0, sticky="w")
+        self.gem_model_entry = ctk.CTkEntry(jf, height=32, corner_radius=10,
+                                            fg_color=SURFACE2, border_color=BORDER,
+                                            text_color=TEXT, font=ctk.CTkFont(FONT_UI, 12))
+        self.gem_model_entry.insert(0, GJ.DEFAULT_MODEL)
+        self.gem_model_entry.grid(row=1, column=0, sticky="ew", pady=(4, 0))
+        self.judge_frame = jf
+        self.chunk_cap, self.chunk_val, self.chunk_slider = self._slider_block(
+            sb, r, "chunk_auto", 5, 25, 20, 10,
+            lambda v: f"{int(float(v))} {self.t('min')}"); r += 1
+        self.mchunk_cap, self.mchunk_val, self.mchunk_slider = self._slider_block(
+            sb, r, "chunk_manual", 2, 10, 8, 5,
+            lambda v: f"{int(float(v))} {self.t('min')}"); r += 1
+        self.highlight_switch = ctk.CTkSwitch(
+            sb, text=self.t("highlight_flags"), font=ctk.CTkFont(FONT_UI, 12),
+            text_color=TEXT, command=lambda: setattr(
+                self, "_highlight", bool(self.highlight_switch.get())))
+        self.highlight_switch.select()
+        self.highlight_switch.grid(row=r, column=0, sticky="w", padx=20, pady=(4, 6)); r += 1
+        self.manual_switch = ctk.CTkSwitch(
+            sb, text=self.t("manual_start"), font=ctk.CTkFont(FONT_UI, 12), text_color=TEXT)
+        self.manual_switch.grid(row=r, column=0, sticky="w", padx=20, pady=(4, 6)); r += 1
+        self.hybrid_note = ctk.CTkLabel(sb, text=self.t("hybrid_note"), text_color=MUTED,
+                                        font=ctk.CTkFont(FONT_UI, 11), anchor="w",
+                                        wraplength=210, justify="left")
+        self.hybrid_note.grid(row=r, column=0, sticky="ew", padx=20, pady=(2, 6)); r += 1
+        self.pk_note = ctk.CTkLabel(sb, text=self.t("pk_note"), text_color=MUTED,
+                                    font=ctk.CTkFont(FONT_UI, 11), anchor="w",
+                                    wraplength=210, justify="left")
+        self.pk_note.grid(row=r, column=0, sticky="ew", padx=20, pady=(0, 14)); r += 1
+        self._judge_widgets = (self.cap_judge, self.judge_frame,
+                               self.chunk_cap.master, self.mchunk_cap.master,
+                               self.manual_switch, self.hybrid_note)
 
         # KAYNAK DİL
         self.cap_src = self._caption(sb, r, "src_lang"); r += 1
@@ -1487,7 +1653,7 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.dev_lbl = ctk.CTkLabel(dev, text=self.t("dev_check"), text_color=MUTED,
                                     font=ctk.CTkFont(FONT_UI, 12))
         self.dev_lbl.pack(side="left")
-        ctk.CTkLabel(dev, text="v1.4", text_color=FAINT,
+        ctk.CTkLabel(dev, text="v1.7", text_color=FAINT,
                      font=ctk.CTkFont(FONT_UI, 11)).pack(side="right")
 
     def _caption(self, parent, row, key):
@@ -1532,43 +1698,52 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
 
     # ----------------------------------------------------- motor seçimi
     def _rebuild_engine_seg(self):
-        """Motor segmentini kurar; etiketler arayüz diline göre güncellenir."""
-        wsp, gem = self.t("engine_whisper"), self.t("engine_gemini")
-        self._engine_labels = {wsp: "whisper", gem: "gemini"}
-        self.engine_seg.configure(values=[wsp, gem])
-        self.engine_seg.set(gem if self._engine == "gemini" else wsp)
+        """Motor modu segmentini kurar; etiketler arayüz diline göre güncellenir."""
+        labels = [self.t("mode_" + k) for k in ENGINES]
+        self._engine_labels = {self.t("mode_" + k): k for k in ENGINES}
+        self.engine_seg.configure(values=labels)
+        self.engine_seg.set(self.t("mode_" + self._engine))
 
     def _on_engine(self, value):
-        key = self._engine_labels.get(value, "whisper")
+        key = self._engine_labels.get(value, DEFAULT_MODE)
+        needs_genai = key in ("gemini", "hybrid")
+        if needs_genai and not GeminiEngine.available():
+            # SDK yoksa bu modlar seçilemez; seçim Whisper + Parakeet'e geri alınır.
+            self._logt("gem_err_nosdk")
+            key = "whisper_parakeet" if key == "hybrid" else "whisper"
         if key == "gemini":
-            # SDK yoksa motor seçilemez; seçim Whisper'a geri alınır.
-            if not GeminiEngine.available():
-                self._logt("gem_err_nosdk")
-                self._engine = "whisper"
-                self._rebuild_engine_seg()
-                self._apply_engine_visibility()
-                return
             if not gemini_api_key(self.key_entry.get().strip()):
                 self._logt("gem_err_nokey")
             elif os.environ.get("GEMINI_API_KEY"):
                 self._logt("key_from_env")
-        if key != self._engine and key == "gemini":
-            # Buluta geçildi: Whisper modelini VRAM'de tutmanın anlamı yok.
-            # (6 GB'lık kartlarda large-v3 ~3 GB yer kaplar.) Geri dönülürse
-            # model yeniden yüklenir ve bunu günlükte "Model yükleniyor" gösterir.
+        if key in PIPELINE_MODES and not PKE.available():
+            self._logt("pk_unavailable")
+        if key != self._engine and key in ("gemini",) + PIPELINE_MODES:
+            # Bulut motoruna ya da hibrit boru hattına geçildi: hibrit hat Whisper'ı
+            # her dosyada kendisi yükleyip Parakeet'ten ÖNCE boşaltır; önbellekteki
+            # modeli VRAM'de tutmanın anlamı yok (6 GB kartta large-v3 ~3 GB).
             w = self._engines.get("whisper")
             if w is not None:
                 w.release()
         self._engine = key
+        self._rebuild_engine_seg()
         self._apply_engine_visibility()
 
     def _apply_engine_visibility(self):
-        """Whisper → model seçici; Gemini → anahtar alanı + bulut uyarısı."""
-        gem = self._engine == "gemini"
-        for w in (self.cap_model, self.model_menu):
-            w.grid_remove() if gem else w.grid()
-        for w in (self.cap_key, self.key_entry, self.key_note):
-            w.grid() if gem else w.grid_remove()
+        """Mod → hangi kenar çubuğu kontrolleri görünür."""
+        mode = self._engine
+        show = {
+            (self.cap_model, self.model_menu): mode != "gemini",
+            (self.cap_key, self.key_entry): mode in ("gemini", "hybrid"),
+            (self.key_note,): mode == "gemini",
+            self._judge_widgets: mode == "hybrid",
+            (self.highlight_switch, self.pk_note): mode in PIPELINE_MODES,
+        }
+        for widgets, visible in show.items():
+            for w in widgets:
+                w.grid() if visible else w.grid_remove()
+        if hasattr(self, "stage_bar"):
+            self._reset_stage_chips()
 
     def _get_engine(self, key):
         """Motor örneğini önbellekten verir (Whisper modeli böylece hayatta kalır)."""
@@ -1617,7 +1792,7 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         main = ctk.CTkFrame(self, fg_color="transparent")
         main.grid(row=0, column=1, sticky="nsew", padx=36, pady=24)
         main.grid_columnconfigure(0, weight=1)
-        main.grid_rowconfigure(6, weight=1, minsize=150)
+        main.grid_rowconfigure(7, weight=1, minsize=150)
 
         head = ctk.CTkFrame(main, fg_color="transparent")
         head.grid(row=0, column=0, sticky="ew", pady=(0, 20))
@@ -1694,9 +1869,22 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.files_list.grid_columnconfigure(0, weight=1)
         self.files_card.grid_remove()
 
+        # MOTOR modu (ana ekranda): Sadece Whisper / +Parakeet / +Gemini hakem / Gemini Transcribe
+        moderow = ctk.CTkFrame(main, fg_color="transparent")
+        moderow.grid(row=3, column=0, sticky="ew", pady=(14, 0))
+        moderow.grid_columnconfigure(1, weight=1)
+        self.cap_engine = ctk.CTkLabel(moderow, text=self.t("engine"),
+                                       font=ctk.CTkFont(FONT_UI, 11, weight="bold"),
+                                       text_color=MUTED)
+        self.cap_engine.grid(row=0, column=0, sticky="w", padx=(0, 12))
+        self.engine_seg = ctk.CTkSegmentedButton(
+            moderow, values=[self.t("mode_" + k) for k in ENGINES],
+            command=self._on_engine, height=34, font=ctk.CTkFont(FONT_UI, 12))
+        self.engine_seg.grid(row=0, column=1, sticky="ew")
+
         # Eylem butonları
         actions = ctk.CTkFrame(main, fg_color="transparent")
-        actions.grid(row=3, column=0, sticky="ew", pady=(16, 0))
+        actions.grid(row=4, column=0, sticky="ew", pady=(14, 0))
         actions.grid_columnconfigure(0, weight=1)
         self.primary_btn = ctk.CTkButton(actions, text=self.t("start"), height=50,
                                          corner_radius=12,
@@ -1713,7 +1901,7 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
 
         # İlerleme
         prog = ctk.CTkFrame(main, fg_color="transparent")
-        prog.grid(row=4, column=0, sticky="ew", pady=(20, 0))
+        prog.grid(row=5, column=0, sticky="ew", pady=(18, 0))
         prog.grid_columnconfigure(0, weight=1)
         self.progress = ctk.CTkProgressBar(prog, height=8, corner_radius=4,
                                            fg_color=SURFACE2)
@@ -1723,9 +1911,26 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
                                         font=ctk.CTkFont(FONT_UI, 14, weight="bold"))
         self.percent_lbl.grid(row=0, column=1)
 
+        # Aşama zinciri: Ses → Whisper → Parakeet → Hizalama → Gemini X/Y → Çıktı
+        self.stage_bar = ctk.CTkFrame(prog, fg_color="transparent")
+        self.stage_bar.grid(row=1, column=0, columnspan=2, sticky="w", pady=(8, 0))
+        self._chip_keys = ("audio", "whisper", "parakeet", "align", "gemini", "output")
+        self._chips, self._chip_arrows = {}, []
+        for i, k in enumerate(self._chip_keys):
+            if i:
+                a = ctk.CTkLabel(self.stage_bar, text="→", text_color=FAINT,
+                                 font=ctk.CTkFont(FONT_UI, 12))
+                a.pack(side="left", padx=6)
+                self._chip_arrows.append(a)
+            lbl = ctk.CTkLabel(self.stage_bar, text=self.t("chip_" + k), text_color=FAINT,
+                               font=ctk.CTkFont(FONT_UI, 12))
+            lbl.pack(side="left")
+            self._chips[k] = lbl
+        self._chip_state = {}
+
         # Durum + istatistik
         srow = ctk.CTkFrame(main, fg_color="transparent")
-        srow.grid(row=5, column=0, sticky="ew", pady=(12, 0))
+        srow.grid(row=6, column=0, sticky="ew", pady=(10, 0))
         srow.grid_columnconfigure(1, weight=1)
         self.status_dot = ctk.CTkLabel(srow, text="●", text_color=GREEN,
                                        font=ctk.CTkFont(FONT_UI, 13))
@@ -1737,11 +1942,20 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.stats_lbl = ctk.CTkLabel(srow, text="", font=ctk.CTkFont(FONT_UI, 12),
                                       text_color=MUTED, anchor="e")
         self.stats_lbl.grid(row=0, column=2, sticky="e")
+        # "Manuel moda geç": hibrit modda iş sürerken HER ZAMAN görünür; Gemini
+        # hatası sonrası "Manuel modla devam et" olarak kalır.
+        self.manual_btn = ctk.CTkButton(srow, text=self.t("to_manual"), width=150, height=30,
+                                        corner_radius=8, fg_color=SURFACE2, hover_color=HOVER,
+                                        text_color=TEXT, border_width=1, border_color=BORDER,
+                                        font=ctk.CTkFont(FONT_UI, 12, weight="bold"),
+                                        command=self._on_manual_btn)
+        self.manual_btn.grid(row=0, column=3, sticky="e", padx=(12, 0))
+        self.manual_btn.grid_remove()
 
         # Günlük paneli
         logc = ctk.CTkFrame(main, corner_radius=16, fg_color=TERM_BG,
                             border_width=1, border_color=BORDER_SOFT)
-        logc.grid(row=6, column=0, sticky="nsew", pady=(18, 0))
+        logc.grid(row=7, column=0, sticky="nsew", pady=(18, 0))
         logc.grid_columnconfigure(0, weight=1)
         logc.grid_rowconfigure(1, weight=1)
         lhead = ctk.CTkFrame(logc, fg_color="transparent")
@@ -1794,6 +2008,13 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
                                   progress_color=accent)
         self.vad_slider.configure(button_color=accent, button_hover_color=hover,
                                   progress_color=accent)
+        for sl in (self.chunk_slider, self.mchunk_slider):
+            sl.configure(button_color=accent, button_hover_color=hover, progress_color=accent)
+        self.chunk_val.configure(text_color=accent)
+        self.mchunk_val.configure(text_color=accent)
+        self.highlight_switch.configure(progress_color=accent)
+        self.manual_switch.configure(progress_color=accent)
+        self._render_stage_chips()
         self.sentence_switch.configure(progress_color=accent)
         self.preview_switch.configure(progress_color=accent)
         for cb in self.fmt_boxes.values():
@@ -1827,6 +2048,19 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.cap_key.configure(text=self.t("api_key"))
         self.key_entry.configure(placeholder_text=self.t("api_key_ph"))
         self.key_note.configure(text=self.t("cloud_warn"))
+        self.cap_judge.configure(text=self.t("judge_group"))
+        self.gem_model_cap.configure(text=self.t("gem_model"))
+        self.chunk_cap.configure(text=self.t("chunk_auto"))
+        self.chunk_val.configure(text=f"{int(self.chunk_slider.get())} {self.t('min')}")
+        self.mchunk_cap.configure(text=self.t("chunk_manual"))
+        self.mchunk_val.configure(text=f"{int(self.mchunk_slider.get())} {self.t('min')}")
+        self.highlight_switch.configure(text=self.t("highlight_flags"))
+        self.manual_switch.configure(text=self.t("manual_start"))
+        self.hybrid_note.configure(text=self.t("hybrid_note"))
+        self.pk_note.configure(text=self.t("pk_note"))
+        self._render_stage_chips()
+        self.manual_btn.configure(text=self.t(
+            "continue_manual" if (self._manual_offer and not self.is_running) else "to_manual"))
         self.cap_model.configure(text=self.t("model"))
         self.cap_src.configure(text=self.t("src_lang"))
         self._rebuild_src_menu()
@@ -2024,22 +2258,37 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         if not self.files:
             self._logt("err_no_file")
             return
+        opts = self._collect_opts()
+        if opts is not None:
+            self._start_batch(list(self.files), opts)
 
+    def _collect_opts(self, manual_mode=None):
+        """Arayüzden çalıştırma seçeneklerini toplar; ön koşul eksikse None."""
         formats = [f for f in ("srt", "vtt", "txt", "json") if self.fmt_vars[f].get()]
         if not formats:
             self._logt("no_format")
-            return
+            return None
 
         # Gemini ön koşulları: SDK + anahtar. Eksikse iş hiç başlamaz.
         api_key = self.key_entry.get().strip()
         if self._engine == "gemini":
             if not GeminiEngine.available():
                 self._logt("gem_err_nosdk")
-                return
+                return None
             if not gemini_api_key(api_key):
                 self._logt("gem_err_nokey")
-                return
+                return None
             save_secret("gemini_api_key", api_key)
+
+        if manual_mode is None:
+            manual_mode = bool(self.manual_switch.get())
+        if self._engine == "hybrid" and not manual_mode:
+            # Anahtar sırası: ortam değişkeni → .env → kenar çubuğu/secrets.json.
+            if not GJ.resolve_api_key(APP_DIR, lambda n: api_key or load_secret(n)):
+                self._logt("gj_err_nokey")
+                return None
+            if api_key:
+                save_secret("gemini_api_key", api_key)
 
         # VAD eşiği: hassasiyet 50 → 0.5 (faster-whisper varsayılanı, çıktı birebir aynı);
         # yüksek hassasiyet → düşük eşik (sessiz/boğuk konuşmayı da yakalar).
@@ -2060,19 +2309,31 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
             "preview": bool(self.preview_switch.get()),
             "beam_size": 5 if self._speed == "fast" else 10,
             "vad_threshold": vad_threshold,
+            # hibrit boru hattı
+            "gemini_model": self.gem_model_entry.get().strip() or GJ.DEFAULT_MODEL,
+            "chunk_min_auto": int(self.chunk_slider.get()),
+            "chunk_min_manual": int(self.mchunk_slider.get()),
+            "manual_mode": bool(manual_mode),
         }
+        return opts
 
+    def _start_batch(self, files, opts):
         self.cancel_event.clear()
+        self.manual_event.clear()
+        self._manual_offer = None
+        self._run_mode = opts["engine"]
         self._set_busy(True)
         self.progress.set(0)
         self.percent_lbl.configure(text="0%")
         self._log("─" * 56)
         self._logt("starting")
-        self._logt("engine_line", self._engine)   # ad çevrim anında çözülür
+        self._logt("engine_line", opts["engine"])   # ad çevrim anında çözülür
         self._logt("settings_line", opts["max_chars"], f"{opts['min_dur']:.1f}",
-                   opts["sentence_only"], ", ".join(f.upper() for f in formats))
-        threading.Thread(target=self._batch_worker,
-                         args=(list(self.files), opts), daemon=True).start()
+                   opts["sentence_only"], ", ".join(f.upper() for f in opts["formats"]))
+        worker = (self._hybrid_batch_worker if opts["engine"] in PIPELINE_MODES
+                  else self._batch_worker)
+        self._reset_stage_chips()
+        threading.Thread(target=worker, args=(list(files), opts), daemon=True).start()
 
     def open_output_folder(self):
         if self.last_srt and os.path.exists(self.last_srt):
@@ -2146,6 +2407,11 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
             "out_dir": self.out_dir,
             "term": self.term_entry.get().strip(),
             "post_action": self._post_action,
+            "gem_model": self.gem_model_entry.get().strip() or GJ.DEFAULT_MODEL,
+            "chunk_auto": int(self.chunk_slider.get()),
+            "chunk_manual": int(self.mchunk_slider.get()),
+            "highlight": bool(self.highlight_switch.get()),
+            "manual_start": bool(self.manual_switch.get()),
         }
 
     def _save_settings(self):
@@ -2180,10 +2446,27 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
             self.appear_seg.set("☾" if mode == "dark" else "☀")
         if d.get("accent") in ACCENTS:
             self._set_accent(d["accent"])
-        # Motor: SDK yoksa Gemini seçimi sessizce Whisper'a düşer.
+        # Motor: SDK yoksa Gemini gerektiren modlar sessizce yerel moda düşer.
         eng = d.get("engine")
         if eng in ENGINES:
-            self._engine = eng if (eng != "gemini" or GeminiEngine.available()) else "whisper"
+            if eng in ("gemini", "hybrid") and not GeminiEngine.available():
+                eng = "whisper_parakeet" if eng == "hybrid" else "whisper"
+            self._engine = eng
+        if d.get("gem_model"):
+            self.gem_model_entry.delete(0, "end")
+            self.gem_model_entry.insert(0, str(d["gem_model"]))
+        if "chunk_auto" in d:
+            v = min(25, max(5, int(d["chunk_auto"])))
+            self.chunk_slider.set(v)
+            self.chunk_val.configure(text=f"{v} {self.t('min')}")
+        if "chunk_manual" in d:
+            v = min(10, max(2, int(d["chunk_manual"])))
+            self.mchunk_slider.set(v)
+            self.mchunk_val.configure(text=f"{v} {self.t('min')}")
+        if "highlight" in d:
+            (self.highlight_switch.select if d["highlight"] else self.highlight_switch.deselect)()
+            self._highlight = bool(d["highlight"])
+        (self.manual_switch.select if d.get("manual_start") else self.manual_switch.deselect)()
         saved_key = load_secret("gemini_api_key")
         if saved_key:
             self.key_entry.delete(0, "end")
@@ -2350,15 +2633,129 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
                           "fi": fi + 1, "total": total}))
         return blocks
 
+    # ============================================= HİBRİT BORU HATTI (THREAD)
+    def _hybrid_batch_worker(self, files, opts):
+        """Whisper + Parakeet (+ Gemini hakem). "Sadece Whisper" yolu (_batch_worker)
+        bu metottan TAMAMEN bağımsızdır ve değişmemiştir."""
+        cb = _QueueCallbacks(self)
+        try:
+            pipe = HP.HybridPipeline(
+                self._get_engine("whisper"), slice_words_to_blocks, cb,
+                stop_event=self.cancel_event, manual_event=self.manual_event,
+                secret_loader=lambda n: (opts.get("api_key") or load_secret(n)),
+                app_dir=APP_DIR)
+            total = len(files)
+            saved_any = None
+            for fi, path in enumerate(files):
+                if self.cancel_event.is_set():
+                    raise _Cancelled()
+                cb.fi, cb.total = fi, total
+                self._log("─" * 56)
+                self._logt("file_log", fi + 1, total, os.path.basename(path))
+                self.q(("status", "st_analyzing", self.accent))
+                try:
+                    out = pipe.run(path, opts)
+                except GJ.Cancelled:
+                    raise _Cancelled()
+                except HP.PipelineError as e:
+                    # Gemini kaynaklı hatalarda "Manuel modla devam et" teklif edilir:
+                    # tamamlanan aşamalar kayıtlı, sihirbaz kaldığı yerden sürer.
+                    if e.key.startswith("gj_err_") and opts["engine"] == "hybrid":
+                        self.q(("offer_manual", (path, opts)))
+                    raise
+                if out["status"] == "manual":
+                    self.q(("cancelled_quiet", None))
+                    self.q(("manual", (path, opts)))
+                    return
+
+                src, tr, flags = out["src_blocks"], out["tr_blocks"], out["flags"]
+                name = os.path.basename(path)
+
+                if opts["preview"]:
+                    src = self._preview_wait(self.t("editor_src_title", name, out["src_lang"]),
+                                             src, flags)
+                    if tr is not None:
+                        tr = self._preview_wait(self.t("editor_tr_title", name), tr, flags)
+
+                out_dir = opts["out_dir"] or os.path.dirname(path)
+                os.makedirs(out_dir, exist_ok=True)
+                base = os.path.splitext(name)[0]
+                src = _sanitize_blocks(src)
+                for fmt in opts["formats"]:
+                    ext, writer = WRITERS[fmt]
+                    if tr is None:
+                        # Gemini yok: dosya adı "Sadece Whisper" ile aynı kalır.
+                        p1 = os.path.join(out_dir, base + "." + ext)
+                        writer(src, p1)
+                        self._logt("saved", p1)
+                    else:
+                        p1 = os.path.join(out_dir, "%s.%s.%s" % (base, out["src_lang"], ext))
+                        p2 = os.path.join(out_dir, "%s.tr.%s" % (base, ext))
+                        writer(src, p1)
+                        writer(_sanitize_blocks(tr), p2)
+                        self._logt("saved_pair", p1, os.path.basename(p2))
+                    saved_any = p1
+                st = out["stats"]
+                self._logt("hy_done", st["lines"], st["dis"], st["low"], st["unverified"])
+                # İş başarıyla bitti → geçici dosyalar (WAV, ara JSON'lar) silinir.
+                out["job"].cleanup()
+                self._logt("hy_cleanup")
+
+            self.q(("progress", 1.0))
+            self._log("─" * 56)
+            self._logt("batch_done", total)
+            self.q(("done", saved_any))
+
+        except _Cancelled:
+            self._logt("cancelled")
+            self.q(("cancelled", None))
+        except (HP.PipelineError, EngineError) as e:
+            self._logt(e.key)
+            if e.detail:
+                self._log(f"✕ {e.detail}")
+            self.q(("error", e.key))
+        except PKE.ParakeetError as e:
+            self._logt("pk_failed")
+            self._log(f"✕ {e.detail}")
+            self.q(("error", "pk_failed"))
+        except Exception as e:
+            self._log(f"✕ {type(e).__name__}: {e}")
+            self.q(("error", str(e)))
+        finally:
+            # Whisper modeli VRAM'de kalmasın (hibrit hat her dosyada yeniden yükler).
+            try:
+                self._get_engine("whisper").release()
+            except Exception:
+                pass
+
+    def _preview_wait(self, title, blocks, flags):
+        """Worker'dan düzenleyiciyi aç ve kapanmasını bekle (mevcut el sıkışmasıyla aynı)."""
+        self.q(("status", "st_editing", WARN))
+        ev = threading.Event()
+        result = {"blocks": None, "cancel": False}
+        self.q(("preview", {"name": title, "blocks": blocks, "flags": flags,
+                            "event": ev, "result": result, "raw_title": True}))
+        while not ev.wait(timeout=0.4):
+            if self.cancel_event.is_set():
+                self.q(("close_editor", None))
+                ev.wait()
+                break
+        if result["cancel"]:
+            raise _Cancelled()
+        return result["blocks"] if result["blocks"] is not None else blocks
+
     # ----------------------------------------------------- önizleme/düzenleme penceresi
-    def _editor_window(self, name, blocks, hint, on_save, on_cancel, external_cancel):
+    def _editor_window(self, name, blocks, hint, on_save, on_cancel, external_cancel,
+                       flags=None, raw_title=False):
         """Ortak SRT düzenleyici penceresi. on_save(parsed)/on_cancel() geri çağrıları
         kullanım yerine göre davranışı belirler (worker el sıkışması veya dosya kaydı).
-        external_cancel=True iken pencere dışarıdan (_active_editor) kapatılabilir."""
+        external_cancel=True iken pencere dışarıdan (_active_editor) kapatılabilir.
+        flags (hibrit mod): blok başına {"dis","low","unverified"} → renkli işaret
+        (ayarlardan kapatılabilir — spoiler yememek için)."""
         orig_n = len(blocks)
         forced = {"on": False}
         win = ctk.CTkToplevel(self)
-        win.title(self.t("editor_title", name))
+        win.title(name if raw_title else self.t("editor_title", name))
         win.geometry("780x640")
         win.configure(fg_color=BG)
         win.transient(self)
@@ -2376,6 +2773,9 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
                              wrap="word", border_width=1, border_color=BORDER_SOFT)
         box.grid(row=1, column=0, sticky="nsew", padx=20, pady=(0, 8))
         box.insert("1.0", blocks_to_srt_text(blocks))
+        show_flags = bool(flags) and self._highlight
+        if show_flags:
+            self._apply_flag_tags(box, blocks, flags)
 
         warn_lbl = ctk.CTkLabel(win, text="", text_color=RED,
                                 font=ctk.CTkFont(FONT_UI, 12, weight="bold"),
@@ -2386,6 +2786,13 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
         bar = ctk.CTkFrame(win, fg_color="transparent")
         bar.grid(row=3, column=0, sticky="ew", padx=20, pady=(4, 18))
         bar.grid_columnconfigure(0, weight=1)
+        if show_flags:
+            legend = ctk.CTkFrame(bar, fg_color="transparent")
+            legend.grid(row=0, column=0, sticky="w")
+            for key, col in (("lg_dis", WARN), ("lg_low", RED), ("lg_unv", PURPLE)):
+                ctk.CTkLabel(legend, text=self.t(key), text_color=col,
+                             font=ctk.CTkFont(FONT_UI, 11, weight="bold")).pack(
+                    side="left", padx=(0, 12))
 
         def close():
             if external_cancel:
@@ -2435,6 +2842,26 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
             self._active_editor = do_cancel
         win.after(120, lambda: (win.lift(), win.focus_force(), self._grab(win)))
 
+    def _apply_flag_tags(self, box, blocks, flags):
+        """Şüpheli blokların METİN satırlarını renkli zeminle işaretler.
+        Öncelik: doğrulanamadı > düşük güven > anlaşmazlık. Blok düzeni
+        blocks_to_srt_text ile aynıdır: sıra no, zaman, metin satır(lar)ı, boş satır."""
+        try:
+            dark = ctk.get_appearance_mode().lower() == "dark"
+            tb = getattr(box, "_textbox", box)
+            for tag, col in (("f_dis", FLAG_DIS), ("f_low", FLAG_LOW), ("f_unv", FLAG_UNV)):
+                tb.tag_configure(tag, background=col[1] if dark else col[0])
+            line = 1
+            for (_s, _e, txt), f in zip(blocks, flags):
+                n = str(txt).count("\n") + 1
+                tag = ("f_unv" if f.get("unverified") else "f_low" if f.get("low")
+                       else "f_dis" if f.get("dis") else None)
+                if tag:
+                    tb.tag_add(tag, "%d.0" % (line + 2), "%d.end" % (line + 1 + n))
+                line += 3 + n
+        except Exception as e:
+            self.log_queue.put(("raw", f"\n[editor-flags] {e}\n"))
+
     def _open_editor(self, payload):
         """Worker el sıkışması: blokları düzenler, sonucu result/event ile worker'a döndürür."""
         ev = payload["event"]
@@ -2452,7 +2879,9 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
 
         try:
             self._editor_window(payload["name"], payload["blocks"], self.t("editor_hint"),
-                                on_save, on_cancel, external_cancel=True)
+                                on_save, on_cancel, external_cancel=True,
+                                flags=payload.get("flags"),
+                                raw_title=payload.get("raw_title", False))
         except Exception as e:
             # Düzenleyici açılamazsa worker'ı serbest bırak; orijinal bloklar kullanılır.
             self.log_queue.put(("raw", f"\n[editor] {e}\n"))
@@ -2489,6 +2918,202 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
             self._logt("sub_loaded", os.path.basename(path))
         except Exception as e:
             self._logt("editor_file_err", str(e))
+
+    # ----------------------------------------------------- manuel mod sihirbazı
+    def _open_manual_wizard(self, path, opts):
+        """API yerine Gemini web sohbeti: parça parça 'sesi sürükle → promptu kopyala →
+        cevabı yapıştır'. Otomatik modla AYNI checkpoint'i (results.json) kullanır."""
+        if self._mw is not None:
+            try:
+                self._mw.lift()
+                return
+            except Exception:
+                self._mw = None
+        try:
+            ms = HP.ManualSession(path, chunk_min=opts.get("chunk_min_manual", 5))
+        except Exception as e:
+            self._log(f"✕ {type(e).__name__}: {e}")
+            return
+        if not ms.ready:
+            self._logt("mw_not_ready")
+            return
+
+        win = ctk.CTkToplevel(self)
+        self._mw = win
+        win.title(self.t("mw_title", os.path.basename(path)))
+        win.geometry("780x700")
+        win.minsize(640, 560)
+        win.configure(fg_color=BG)
+        win.transient(self)
+        win.grid_columnconfigure(0, weight=1)
+        win.grid_rowconfigure(5, weight=1)
+        self.after(220, lambda: self._set_toplevel_icon(win))
+        state = {"pkg": None}
+        F = lambda size, bold=False: ctk.CTkFont(FONT_UI, size, weight="bold" if bold else "normal")
+
+        hdr = ctk.CTkLabel(win, text="", font=F(15, True), text_color=TEXT, anchor="w")
+        hdr.grid(row=0, column=0, sticky="ew", padx=22, pady=(18, 0))
+        prog_lbl = ctk.CTkLabel(win, text="", font=F(12), text_color=MUTED, anchor="w")
+        prog_lbl.grid(row=1, column=0, sticky="ew", padx=22, pady=(2, 10))
+
+        def btn(parent, key, cmd, primary=False, width=150):
+            return ctk.CTkButton(
+                parent, text=self.t(key), command=cmd, width=width, height=34,
+                corner_radius=9, font=F(12, primary),
+                fg_color=self.accent if primary else SURFACE2,
+                hover_color=self.accent_hover if primary else HOVER,
+                text_color="#ffffff" if primary else TEXT,
+                border_width=0 if primary else 1, border_color=BORDER)
+
+        # 1) ses parçası
+        s1 = ctk.CTkFrame(win, fg_color=SURFACE, corner_radius=12, border_width=1,
+                          border_color=BORDER_SOFT)
+        s1.grid(row=2, column=0, sticky="ew", padx=20, pady=(0, 8))
+        s1.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(s1, text=self.t("mw_step1"), font=F(13, True), text_color=TEXT,
+                     anchor="w").grid(row=0, column=0, columnspan=4, sticky="w",
+                                      padx=14, pady=(10, 6))
+        drag_lbl = ctk.CTkLabel(s1, text=self.t("mw_drag"), font=F(12, True),
+                                text_color=self.accent, fg_color=SURFACE2, corner_radius=8,
+                                width=170, height=34, cursor="hand2")
+        drag_lbl.grid(row=1, column=0, padx=(14, 8), pady=(0, 12))
+        file_lbl = ctk.CTkLabel(s1, text="", font=ctk.CTkFont(FONT_MONO, 12),
+                                text_color=MUTED, anchor="w")
+        file_lbl.grid(row=1, column=1, sticky="ew", pady=(0, 12))
+
+        def show_in_folder():
+            if state["pkg"]:
+                try:
+                    import subprocess
+                    subprocess.Popen(["explorer", "/select,", os.path.normpath(state["pkg"]["wav"])])
+                except Exception as e:
+                    self._logt("open_fail", str(e))
+
+        def open_gemini():
+            import webbrowser
+            webbrowser.open("https://gemini.google.com/app")
+
+        btn(s1, "mw_show", show_in_folder, width=130).grid(row=1, column=2, padx=(8, 6), pady=(0, 12))
+        btn(s1, "mw_open_gemini", open_gemini, width=120).grid(row=1, column=3, padx=(0, 14), pady=(0, 12))
+
+        # Sihirbazdan doğrudan tarayıcıya sürükleme (tkinterdnd2 sürükleme kaynağı).
+        def drag_init(_event):
+            if not state["pkg"]:
+                return None
+            return ("copy", DND_FILES, (os.path.normpath(state["pkg"]["wav"]),))
+        for w in (drag_lbl, getattr(drag_lbl, "_label", None)):
+            if w is None:
+                continue
+            try:
+                w.drag_source_register(1, DND_FILES)
+                w.dnd_bind("<<DragInitCmd>>", drag_init)
+            except Exception:
+                pass
+
+        # 2) prompt
+        s2 = ctk.CTkFrame(win, fg_color=SURFACE, corner_radius=12, border_width=1,
+                          border_color=BORDER_SOFT)
+        s2.grid(row=3, column=0, sticky="ew", padx=20, pady=(0, 8))
+        s2.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(s2, text=self.t("mw_step2"), font=F(13, True), text_color=TEXT,
+                     anchor="w").grid(row=0, column=0, columnspan=2, sticky="w",
+                                      padx=14, pady=(10, 6))
+        copied_lbl = ctk.CTkLabel(s2, text="", font=F(12, True), text_color=GREEN, anchor="w")
+
+        def copy_prompt():
+            if state["pkg"]:
+                self.clipboard_clear()
+                self.clipboard_append(state["pkg"]["prompt"])
+                self.update()
+                copied_lbl.configure(text=self.t("mw_copied"))
+        btn(s2, "mw_copy", copy_prompt, primary=True, width=170).grid(
+            row=1, column=0, padx=(14, 10), pady=(0, 12), sticky="w")
+        copied_lbl.grid(row=1, column=1, sticky="w", pady=(0, 12))
+
+        # 3) cevap
+        ctk.CTkLabel(win, text=self.t("mw_step3"), font=F(13, True), text_color=TEXT,
+                     anchor="w").grid(row=4, column=0, sticky="ew", padx=22, pady=(4, 4))
+        box = ctk.CTkTextbox(win, corner_radius=12, fg_color=TERM_BG, text_color=TEXT,
+                             font=ctk.CTkFont(FONT_MONO, 12), wrap="word",
+                             border_width=1, border_color=BORDER_SOFT)
+        box.grid(row=5, column=0, sticky="nsew", padx=20, pady=(0, 6))
+        msg_lbl = ctk.CTkLabel(win, text="", font=F(12, True), anchor="w",
+                               wraplength=720, justify="left")
+        msg_lbl.grid(row=6, column=0, sticky="ew", padx=22, pady=(0, 4))
+
+        bar = ctk.CTkFrame(win, fg_color="transparent")
+        bar.grid(row=7, column=0, sticky="ew", padx=20, pady=(4, 16))
+        bar.grid_columnconfigure(2, weight=1)
+
+        def msg(text, color):
+            msg_lbl.configure(text=text, text_color=color)
+
+        def close():
+            self._mw = None
+            try:
+                win.destroy()
+            except Exception:
+                pass
+
+        def restart(manual):
+            if self.is_running:
+                return
+            o = dict(opts, manual_mode=manual)
+            if not manual and not GJ.resolve_api_key(
+                    APP_DIR, lambda n: o.get("api_key") or load_secret(n)):
+                self._logt("gj_err_nokey")
+                msg(self.t("gj_err_nokey"), RED)
+                return
+            close()
+            self._start_batch([path], o)
+
+        def load_next():
+            try:
+                pkg = ms.next_package()
+            except Exception as e:
+                msg(f"✕ {type(e).__name__}: {e}", RED)
+                return
+            state["pkg"] = pkg
+            box.delete("1.0", "end")
+            copied_lbl.configure(text="")
+            done, tot = ms.progress()
+            prog_lbl.configure(text=self.t("mw_progress", done, tot))
+            if pkg is None:
+                hdr.configure(text=self.t("mw_all_done"))
+                file_lbl.configure(text="")
+                main_btn.configure(text=self.t("mw_finish"), command=lambda: restart(True))
+                return
+            hdr.configure(text=self.t("mw_part", pkg["part"], HP.AL_fmt(pkg["start"]),
+                                      HP.AL_fmt(pkg["end"]), len(pkg["ids"]),
+                                      pkg["remaining"]))
+            file_lbl.configure(text=os.path.basename(pkg["wav"]))
+            main_btn.configure(text=self.t("mw_validate"), command=validate)
+
+        def validate():
+            text = box.get("1.0", "end").strip()
+            if not text:
+                msg(self.t("mw_empty"), WARN)
+                return
+            v = ms.submit(text)
+            if not v.good:
+                msg(self.t("mw_parse"), RED)
+                return
+            parts = [self.t("mw_ok", len(v.good))]
+            if v.missing:
+                ids = ", ".join(map(str, v.missing[:15])) + ("…" if len(v.missing) > 15 else "")
+                parts.append(self.t("mw_missing", len(v.missing), ids))
+            msg("  ".join(parts), WARN if v.missing else GREEN)
+            self._logt("mw_ok", len(v.good))
+            load_next()
+
+        btn(bar, "mw_back_auto", lambda: restart(False), width=160).grid(row=0, column=0, padx=(0, 8))
+        btn(bar, "mw_close", close, width=190).grid(row=0, column=1)
+        main_btn = btn(bar, "mw_validate", validate, primary=True, width=200)
+        main_btn.grid(row=0, column=3)
+
+        win.protocol("WM_DELETE_WINDOW", close)
+        load_next()
+        win.after(120, lambda: (win.lift(), win.focus_force()))
 
     def _grab(self, win):
         try:
@@ -2552,18 +3177,125 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
                 elif kind == "error":
                     self._set_status("st_error", RED)
                     self._set_busy(False)
+                # --- hibrit boru hattı ---
+                elif kind == "stage":
+                    self._on_stage(item[1], item[2])
+                elif kind == "wait":
+                    self._on_wait(item[1], item[2])
+                elif kind == "cancelled_quiet":
+                    self._set_status("st_ready", WARN)
+                    self._set_busy(False)
+                elif kind == "manual":
+                    self._open_manual_wizard(*item[1])
+                elif kind == "offer_manual":
+                    self._manual_offer = item[1]
+                    self._refresh_manual_btn()
         except queue.Empty:
             pass
         self.after(80, self._poll_log_queue)
 
     # ----------------------------------------------------- durum / ilerleme
-    def _set_status(self, key, color):
+    def _set_status(self, key, color, *args):
         self._status_key, self._status_color = key, color
+        self._status_args = args
         self._render_status()
 
     def _render_status(self):
         self.status_dot.configure(text_color=self._status_color)
-        self.status_lbl.configure(text=self.t(self._status_key))
+        self.status_lbl.configure(text=self.t(self._status_key,
+                                              *getattr(self, "_status_args", ())))
+
+    # ----------------------------------------------------- aşama zinciri
+    _STAGE_MAP = {"stg_audio": "audio", "stg_whisper": "whisper", "stg_parakeet": "parakeet",
+                  "stg_parakeet_skip": "parakeet", "stg_align": "align",
+                  "stg_gemini": "gemini", "stg_output": "output"}
+
+    def _reset_stage_chips(self):
+        self._chip_state = {}
+        self._gem_progress = None
+        self._render_stage_chips()
+
+    def _render_stage_chips(self):
+        if not hasattr(self, "stage_bar"):
+            return
+        mode = self._engine
+        if mode not in PIPELINE_MODES:
+            self.stage_bar.grid_remove()
+            return
+        self.stage_bar.grid()
+        for k, lbl in self._chips.items():
+            st = self._chip_state.get(k, "todo")
+            text = self.t("chip_" + k)
+            if k == "gemini" and getattr(self, "_gem_progress", None):
+                text = self.t("chip_gemini_n", *self._gem_progress)
+            if st == "done":
+                lbl.configure(text="✓ " + text, text_color=GREEN,
+                              font=ctk.CTkFont(FONT_UI, 12))
+            elif st == "active":
+                lbl.configure(text=text, text_color=self.accent,
+                              font=ctk.CTkFont(FONT_UI, 12, weight="bold"))
+            elif st == "skip":
+                lbl.configure(text="– " + text, text_color=FAINT,
+                              font=ctk.CTkFont(FONT_UI, 12, overstrike=True))
+            else:
+                lbl.configure(text=text, text_color=FAINT, font=ctk.CTkFont(FONT_UI, 12))
+        # Gemini'siz modda Gemini halkası gizlenir (pack sırası bozulmasın diye
+        # pack_forget yerine metin boşaltılır).
+        arrow = self._chip_arrows[self._chip_keys.index("gemini") - 1]
+        if mode == "hybrid":
+            arrow.configure(text="→")
+        else:
+            self._chips["gemini"].configure(text="")
+            arrow.configure(text="")
+
+    def _on_stage(self, key, args):
+        stage = self._STAGE_MAP.get(key)
+        if stage is None:
+            return
+        idx = self._chip_keys.index(stage)
+        for i, k in enumerate(self._chip_keys):
+            if i < idx and self._chip_state.get(k) != "skip":
+                self._chip_state[k] = "done"
+        self._chip_state[stage] = "skip" if key == "stg_parakeet_skip" else "active"
+        if stage == "gemini" and len(args) == 2:
+            self._gem_progress = tuple(args)
+        self._render_stage_chips()
+        if key != "stg_parakeet_skip":
+            self._set_status(key, self.accent, *args)
+
+    def _on_wait(self, seconds, kind):
+        """429/5xx geri sayımı; 0 → önceki aşama durumuna dön."""
+        if seconds:
+            self._wait_restore = getattr(self, "_wait_restore", None) or (
+                self._status_key, self._status_color, getattr(self, "_status_args", ()))
+            self._set_status("wait_" + kind, WARN, seconds)
+        elif getattr(self, "_wait_restore", None):
+            k, c, a = self._wait_restore
+            self._wait_restore = None
+            self._set_status(k, c, *a)
+
+    # ----------------------------------------------------- manuel mod düğmesi
+    def _refresh_manual_btn(self):
+        running_hybrid = self.is_running and self._run_mode == "hybrid"
+        if running_hybrid:
+            self.manual_btn.configure(text=self.t("to_manual"), state="normal")
+            self.manual_btn.grid()
+        elif self._manual_offer:
+            self.manual_btn.configure(text=self.t("continue_manual"), state="normal")
+            self.manual_btn.grid()
+        else:
+            self.manual_btn.grid_remove()
+
+    def _on_manual_btn(self):
+        if self.is_running:
+            # Worker'a sinyal: Gemini beklerken/parça arasında manuel moda geçilir.
+            self.manual_event.set()
+            self.manual_btn.configure(text=self.t("to_manual_wait"), state="disabled")
+        elif self._manual_offer:
+            path, opts = self._manual_offer
+            self._manual_offer = None
+            self._refresh_manual_btn()
+            self._open_manual_wizard(path, opts)
 
     def _set_device(self, ok):
         self.dev_dot.configure(text_color=GREEN if ok else WARN)
@@ -2691,6 +3423,7 @@ class AutoSRTApp(ctk.CTk, TkinterDnD.DnDWrapper):
             self.progress.stop()
             self._pb_mode = "det"
             self._update_primary()
+        self._refresh_manual_btn()
 
     def _update_primary(self):
         if getattr(self, "is_running", False):
