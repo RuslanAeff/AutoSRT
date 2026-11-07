@@ -7,11 +7,12 @@
 <p align="center">
   <b>Yapay Zeka Destekli Altyazı Motoru</b><br>
   <i>AI-Powered Subtitle Engine</i> — Generate precise, micro-segmented <code>.srt</code> subtitle files from any video or audio.<br>
-  Choose your engine: <b>faster-whisper</b> locally on your NVIDIA GPU, or <b>Google Gemini 3.5 Transcribe</b> in the cloud.
+  Hybrid engine: <b>faster-whisper</b> + <b>NVIDIA Parakeet</b> locally on your GPU, with <b>Gemini</b> as the judge → corrected source subtitles <b>and</b> a Turkish translation.
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.6-6366f1" alt="Version">
+  <img src="https://img.shields.io/badge/version-1.7-6366f1" alt="Version">
+  <img src="https://img.shields.io/badge/Parakeet-TDT%200.6B%20v3-76b900?logo=nvidia&logoColor=white" alt="Parakeet">
   <img src="https://img.shields.io/badge/Python-3.11%2B-blue?logo=python&logoColor=white" alt="Python">
   <img src="https://img.shields.io/badge/faster--whisper-1.2%2B-green" alt="faster-whisper">
   <img src="https://img.shields.io/badge/Gemini-3.5%20Transcribe-4285F4?logo=google&logoColor=white" alt="Gemini">
@@ -25,7 +26,12 @@
 
 | | TR | EN |
 |---|---|---|
-| 🔀 | **İki motor**: Whisper (yerel, varsayılan) · Gemini 3.5 Transcribe (bulut) | **Two engines**: Whisper (local, default) · Gemini 3.5 Transcribe (cloud) |
+| 🔀 | **Dört motor modu**: Sadece Whisper · Whisper + Parakeet · **Whisper + Parakeet + Gemini hakem** (varsayılan) · Gemini Transcribe | **Four engine modes**: Whisper only · Whisper + Parakeet · **Whisper + Parakeet + Gemini judge** (default) · Gemini Transcribe |
+| ⚖️ | **Gemini hakem**: sesi dinler, iki transkripti karşılaştırır → düzeltilmiş kaynak SRT + **Türkçe SRT** | **Gemini judge**: listens, compares both transcripts → corrected source SRT + **Turkish SRT** |
+| ⏱️ | Zaman damgaları **her zaman Whisper'dan** — senkron kaymaz | Timestamps **always from Whisper** — no sync drift |
+| ↻ | **Kaldığı yerden devam** (checkpoint): çökme/limit sonrası tamamlanan aşamalar atlanır | **Resume** (checkpoint): finished stages are skipped after a crash/limit |
+| 🧑‍💻 | **Manuel mod**: API yerine Gemini web sohbeti — sesi sürükle, promptu kopyala, cevabı yapıştır | **Manual mode**: Gemini web chat instead of the API — drag audio, copy prompt, paste answer |
+| 🙈 | Şüpheli satırları renkle işaretleme — spoiler yememek için kapatılabilir | Doubtful-line highlighting — can be turned off to avoid spoilers |
 | 📦 | **Toplu işleme** — birden çok dosyayı sıraya al, model bir kez yüklenir | **Batch processing** — queue multiple files, model loaded once |
 | ↕️ | Kuyrukta sıra değiştirme (▲ / ▼) ve tek tek kaldırma | Reorder queue (▲ / ▼) and remove items |
 | 🧾 | **Çoklu çıktı biçimi**: SRT · VTT · TXT · JSON | **Multi-format output**: SRT · VTT · TXT · JSON |
@@ -55,27 +61,45 @@
 ## Kurulum / Installation
 
 ### Gereksinimler / Requirements
+- **Windows 10/11** (birincil hedef) — macOS'ta Whisper + Gemini çalışır, Parakeet CPU'da çalışır
 - **Python 3.11+** (3.14'te de test edildi ve çalıştı)
-- **NVIDIA GPU** + güncel sürücü (CUDA 12 uyumlu)
-- GPU yoksa otomatik olarak CPU/int8 moduna geçer
+- **NVIDIA GPU** + sürücü (CUDA 12 uyumlu; 6 GB VRAM yeterli — iki model asla aynı anda yüklenmez)
+- GPU yoksa Whisper CPU/int8'e, Parakeet CPU'ya otomatik geçer
+- Sistemde **ffmpeg gerekmez** (ses PyAV ile çıkarılır)
 
-### Adımlar / Steps
+### Adımlar (Windows, PowerShell) / Steps
 
-```bash
+```powershell
 # 1. Repoyu klonla
-git clone https://github.com/KULLANICI_ADIN/AutoSRT.git
+git clone https://github.com/RuslanAeff/AutoSRT.git
 cd AutoSRT
 
 # 2. (Önerilir) Sanal ortam kur
 python -m venv .venv
-# Windows:
 .\.venv\Scripts\activate
 
 # 3. Bağımlılıkları yükle
 pip install -r requirements.txt
+
+# 4. GPU onnxruntime (Parakeet için) — ÖNEMLİ, bu sırayla:
+#    faster-whisper CPU "onnxruntime"u da kurar; ikisi aynı klasöre yazdığından
+#    CPU sürümünü kaldırıp GPU sürümünü temiz kurun.
+pip uninstall -y onnxruntime onnxruntime-gpu
+pip install onnxruntime-gpu==1.26.0
+
+# 5. Gemini anahtarı (hakem modu için)
+copy .env.example .env
+notepad .env        # GEMINI_API_KEY=... satırını doldurun
 ```
 
-> **Not:** İlk çalıştırmada seçilen model (örn. `large-v3` ~3 GB) otomatik indirilir. İndirme ilerlemesi uygulama içindeki Günlük panelinde görünür.
+> **Notlar**
+> - İlk çalıştırmada Whisper modeli (`large-v3` ~3 GB) ve Parakeet modeli (~2.5 GB) otomatik indirilir.
+> - `onnxruntime-gpu` **1.26.x**'te kalın: 1.27+ CUDA 13 ile derlenir ve NVIDIA sürücüsü ≥ 580 ister.
+>   Sürücünüz yeniyse (≥ 580) güncel sürüm de çalışır.
+> - Parakeet GPU'yu kullanamazsa (günlükte "CPU'da çalışıyor" yazar) yine çalışır — RTX 3060'ta
+>   GPU ~100×, CPU ~20× gerçek zaman hızındadır.
+> - `.env` `.gitignore`'dadır; anahtar hiçbir yerde loglanmaz ve GitHub'a gitmez.
+> - `pip install -r requirements.txt`'i ileride yeniden çalıştırırsanız 4. adımı tekrarlayın.
 
 ---
 
@@ -97,21 +121,83 @@ AutoSRT.vbs
 
 ### Motor seçimi / Engine selection
 
-Sol paneldeki **MOTOR** düğmesiyle iki motor arasında geçiş yapılır. Varsayılan
-**Whisper (yerel)**'dir ve öyle kalır — Gemini tamamen isteğe bağlı bir eklentidir.
+Ana ekrandaki **MOTOR** satırından dört moddan biri seçilir:
 
-| | Whisper (yerel) | Gemini (bulut) |
-|---|---|---|
-| Nerede çalışır | Kendi GPU'nuzda | Google sunucularında |
-| İnternet | Gerekmez | Gerekir |
-| Ücret | Yok | API kullanımı ücretlidir |
-| Gizlilik | Dosya bilgisayardan çıkmaz | **Dosya Google'a yüklenir** |
-| Kurulum | Model indirilir (~3 GB) | API anahtarı |
-| Sol panelde | Model seçici görünür | API anahtarı alanı görünür |
+| Mod | Ne yapar | Çıktı | İnternet |
+|---|---|---|---|
+| **Sadece Whisper** | v1.6'daki akışın birebir aynısı | `video.srt` | Hayır |
+| **Whisper + Parakeet** | İki yerel model; farklı duydukları satırlar editörde işaretlenir | `video.srt` | Hayır |
+| **Whisper + Parakeet + Gemini** *(varsayılan)* | Gemini sesi dinleyip hakemlik yapar, metni düzeltir ve Türkçeye çevirir | `video.<dil>.srt` + `video.tr.srt` | Evet |
+| **Gemini Transcribe** | v1.6 bulut motoru (tüm dosya Gemini 3.5 Transcribe'a gider) | `video.srt` | Evet |
 
-Motorlardan hangisi seçilirse seçilsin **altyazı üretimi aynıdır**: mikro-dilimleme,
-karakter sınırı, min. süre, cümle-sonu bölme, düzenleyici ve tüm çıktı biçimleri
-ortaktır. Motor yalnızca "kelime + zaman damgası" listesini üretir.
+### Hibrit motor nasıl çalışır? / How the hybrid engine works
+
+```
+video ─► 16 kHz mono WAV (bir kez)
+      ─► Whisper large-v3 (kelime zaman damgası) ─► JSON ─► modeli VRAM'den boşalt
+      ─► Parakeet TDT 0.6B v3 (ayrı süreç, GPU)  ─► JSON ─► süreç biter, VRAM serbest
+      ─► hizalama (zaman + edit-distance) ─► satır başına anlaşmazlık bayrağı
+      ─► Gemini parça 1..N (ses + iki transkript JSON) ─► şema doğrulaması
+      ─► kaynak SRT + Türkçe SRT  (zaman damgaları HER ZAMAN Whisper'dan)
+```
+
+- **Parakeet dilleri:** model kartına göre 25 Avrupa dili — İngilizce, Rusça, Fransızca,
+  İspanyolca, Almanca dahil. **Türkçe yok.** Desteklenmeyen bir dil seçilirse (ya da Whisper
+  öyle algılarsa) Parakeet adımı atlanır, aşama zincirinde "Parakeet atlandı" görünür ve
+  Whisper + Gemini ile devam edilir.
+- **Anlaşmazlık sayılmayanlar:** büyük/küçük harf, noktalama, kesme işareti, tire,
+  rakam ↔ yazı (`20` = `twenty`, `num2words` ile), Rusça `ё` ↔ `е`.
+- **Gemini parçaları:** varsayılan 10 dk (ayardan 5–25 dk). Bölme her zaman iki satır
+  arasındaki en uzun sessizlikten yapılır; kelime ortadan bölünmez. Önceki parçanın son
+  4 satırı yalnızca **bağlam** olarak gönderilir, yeniden düzeltilmez.
+- **Doğrulama:** her cevapta tüm id'ler, sıra, boş metin ve satır sayısı kontrol edilir.
+  Hatalı parça **bir kez** otomatik tekrar denenir; yine eksik kalan satırlarda Whisper metni
+  kullanılır ve editörde "Gemini doğrulayamadı" diye işaretlenir.
+- **Limitler:** 429'da (dakikalık sınır) Gemini'nin önerdiği bekleme süresi + üstel geri
+  çekilme ile otomatik beklenir; geri sayım durum satırında görünür. Günlük kota, geçersiz
+  anahtar ve ağ hataları için açık Türkçe mesaj verilir. **"Manuel moda geç"** düğmesi iş
+  sürerken her zaman görünür.
+- **Model:** varsayılan `gemini-3.8-flash` (ücretsiz katmanda; ses girdisi + yapılandırılmış
+  çıktı). Kenar çubuğundaki "Gemini modeli" alanından değiştirilebilir. Güncel ücretsiz
+  katman limitleri yalnızca [AI Studio](https://aistudio.google.com/) panelinde görünür.
+
+> ⚠️ **Gizlilik:** Hakem modunda ses parçaları Gemini'ye yüklenir ve iş bitince Files
+> API'den silinir. Ücretsiz katmanda Google, gönderilen içeriği ürünlerini geliştirmek
+> için kullanabilir. Tamamen yerel çalışmak için "Whisper + Parakeet" modunu seçin.
+
+### Kaldığı yerden devam / Resume (checkpoint)
+
+Her video için `%APPDATA%\AutoSRT\jobs\<id>\` altında bir iş klasörü açılır (video
+yanında değil). Ses, Whisper, Parakeet, hizalama ve **her Gemini parçasının sonucu**
+diske kaydedilir. Uygulama çöker, kapanır ya da kotaya takılırsa aynı videoyu tekrar
+başlatmanız yeterli: tamamlanan aşamalar atlanır. Bir ayarı değiştirirseniz yalnızca
+ondan etkilenen aşamalar yeniden çalışır (ör. Whisper modeli değişirse Parakeet yeniden
+çalışmaz). İş başarıyla bitince klasör silinir; geriye yalnızca altyazı dosyaları kalır.
+30 günden eski yarım kalmış işler uygulama açılışında otomatik silinir.
+
+### Manuel mod / Manual mode (Gemini web sohbeti)
+
+API yerine gemini.google.com sohbetini kullanmak için: kenar çubuğunda **"Manuel mod"**
+anahtarını açın ya da iş sürerken **"Manuel moda geç"**e basın. Sihirbaz her parça için:
+
+1. **Ses parçası** — "Buradan sürükleyin" alanından doğrudan tarayıcıya sürükleyin
+   (ya da "Klasörde göster").
+2. **Prompt** — "Promptu kopyala" → aynı mesaja yapıştırıp gönderin.
+3. **Cevap** — Gemini'nin cevabının tamamını yapıştırın → "Doğrula ve kaydet".
+
+Sohbetler uzun cevapları kesebildiği için manuel parça varsayılanı **5 dk**'dır. Eksik
+satır varsa hangi id'lerin eksik olduğu söylenir ve bunlar bir sonraki pakete eklenir.
+Otomatik ve manuel mod **aynı checkpoint'i** kullanır — istediğiniz an "Otomatik moda dön".
+
+### Komut satırı / CLI
+
+```powershell
+python hybrid_cli.py "bolum.mkv"                          # Whisper + Parakeet + Gemini
+python hybrid_cli.py "bolum.mkv" --lang ru --chunk-min 8
+python hybrid_cli.py "bolum.mkv" --mode whisper_parakeet  # tamamen yerel
+```
+
+Ctrl+C güvenlidir; aynı komut kaldığı yerden devam eder.
 
 ### Gemini kurulumu / Gemini setup
 
@@ -196,14 +282,24 @@ Altyazıların ekranda "şak şak" hızlı geçmesini engellemek için:
 customtkinter>=5.2.2
 tkinterdnd2>=0.4.2
 winotify>=1.1.0
-faster-whisper>=1.0.3      # Motor 1 (yerel, varsayılan)
-google-genai>=2.20.0       # Motor 2 (bulut, isteğe bağlı)
-nvidia-cublas-cu12
-nvidia-cudnn-cu12
+faster-whisper>=1.0.3      # Whisper (yerel)
+google-genai>=2.20.0       # Gemini hakem + Gemini Transcribe (bulut)
+onnx-asr[hub]>=0.12.0      # Parakeet TDT 0.6B v3 (ONNX, NeMo gerekmez)
+onnxruntime-gpu==1.26.0    # CUDA 12 derlemesi — kurulum adımı 4'e bakın
+num2words>=0.5.13          # "20" == "twenty" normalizasyonu
+python-dotenv>=1.0.0       # .env'den GEMINI_API_KEY
+nvidia-cublas-cu12  nvidia-cudnn-cu12  nvidia-cuda-runtime-cu12
+nvidia-cufft-cu12   nvidia-curand-cu12
 ```
 
-`google-genai` kurulu değilse uygulama normal açılır; yalnızca Gemini motoru
-devre dışı görünür. Whisper hiçbir şekilde etkilenmez.
+`google-genai` kurulu değilse uygulama normal açılır; Gemini gerektiren modlar devre
+dışı kalır. `onnx-asr` yoksa Parakeet adımı atlanır. "Sadece Whisper" modu bu
+paketlerin hiçbirinden etkilenmez.
+
+**Neden NeMo değil de onnx-asr?** NeMo, PyTorch ile birlikte birkaç GB tutuyor, Windows'u
+resmî olarak desteklemiyor ve Python 3.14 için paketi yok. sherpa-onnx'te Windows GPU için
+özel derleme gerekiyor. onnx-asr ise saf Python (onnxruntime + numpy), Parakeet v3'ün ONNX
+dönüşümünü HuggingFace'ten kendisi indiriyor ve token zaman damgası veriyor.
 
 ---
 
@@ -211,8 +307,19 @@ devre dışı görünür. Whisper hiçbir şekilde etkilenmez.
 
 ```
 AutoSRT/
-├── main.py            # Tek dosya uygulama — GUI + motor katmanı
-├── compare_engines.py # İki motoru aynı dosyada ölçüp karşılaştıran yardımcı
+├── main.py            # GUI + Whisper/Gemini Transcribe motorları + dilimleme
+├── autosrt_core/      # Hibrit motor çekirdeği (Tkinter'dan bağımsız)
+│   ├── audio.py       #   16 kHz WAV çıkarma (PyAV), VAD pencereleri
+│   ├── parakeet.py    #   Parakeet TDT v3 — ayrı süreçte, GPU (onnx-asr)
+│   ├── align.py       #   normalizasyon + zaman/edit-distance hizalama
+│   ├── judge.py       #   Gemini hakem: istem, şema, doğrulama, 429/kota yönetimi
+│   ├── manual.py      #   manuel mod paketleri
+│   ├── jobs.py        #   iş klasörü + checkpoint + bağımlılık grafiği
+│   └── pipeline.py    #   aşama orkestratörü + ManualSession
+├── hybrid_cli.py      # Hibrit boru hattını arayüzsüz çalıştırır
+├── tests/             # python -m unittest discover -s tests
+├── .env.example       # GEMINI_API_KEY şablonu (.env git'e girmez)
+├── compare_engines.py # Whisper ↔ Gemini Transcribe karşılaştırma yardımcısı
 ├── AutoSRT.vbs        # Konsolsuz Windows başlatıcısı
 ├── icon.png         # Master ikon (1024×1024)
 ├── icon.ico         # Pencere / kısayol ikonu (çok boyutlu)
