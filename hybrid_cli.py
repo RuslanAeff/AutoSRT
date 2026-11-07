@@ -24,6 +24,8 @@ LANG = "tr"
 
 
 def T(key, *a):
+    if key == "gj_retry" and len(a) >= 4:          # hata türünü çevir (rate/server/net)
+        a = a[:3] + (A.L[LANG].get("kind_" + str(a[3]), a[3]),) + a[4:]
     s = A.L[LANG].get(key, key)
     try:
         return s.format(*a) if a else s
