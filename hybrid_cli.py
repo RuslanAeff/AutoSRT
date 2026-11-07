@@ -100,7 +100,11 @@ def main():
     out_dir = args.out_dir or os.path.dirname(os.path.abspath(args.video))
     base = os.path.splitext(os.path.basename(args.video))[0]
     src = A._sanitize_blocks(out["src_blocks"])
-    p1 = os.path.join(out_dir, "%s.%s.srt" % (base, out["src_lang"]))
+    # GUI ile aynı adlandırma: Gemini yoksa "video.srt", varsa "video.<dil>.srt" + "video.tr.srt"
+    if out["tr_blocks"] is None:
+        p1 = os.path.join(out_dir, "%s.srt" % base)
+    else:
+        p1 = os.path.join(out_dir, "%s.%s.srt" % (base, out["src_lang"]))
     A.write_srt(src, p1)
     print("\n" + T("saved", p1))
     if out["tr_blocks"] is not None:
