@@ -6,13 +6,15 @@
 
 <p align="center">
   <b>Yapay Zeka Destekli Altyazı Motoru</b><br>
-  <i>AI-Powered Subtitle Engine</i> — Generate precise, micro-segmented <code>.srt</code> subtitle files from any video or audio using a local Whisper model on your NVIDIA GPU.
+  <i>AI-Powered Subtitle Engine</i> — Generate precise, micro-segmented <code>.srt</code> subtitle files from any video or audio.<br>
+  Choose your engine: <b>faster-whisper</b> locally on your NVIDIA GPU, or <b>Google Gemini 3.5 Transcribe</b> in the cloud.
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.4-6366f1" alt="Version">
+  <img src="https://img.shields.io/badge/version-1.6-6366f1" alt="Version">
   <img src="https://img.shields.io/badge/Python-3.11%2B-blue?logo=python&logoColor=white" alt="Python">
   <img src="https://img.shields.io/badge/faster--whisper-1.2%2B-green" alt="faster-whisper">
+  <img src="https://img.shields.io/badge/Gemini-3.5%20Transcribe-4285F4?logo=google&logoColor=white" alt="Gemini">
   <img src="https://img.shields.io/badge/CUDA-12-76b900?logo=nvidia&logoColor=white" alt="CUDA">
   <img src="https://img.shields.io/badge/License-MIT-purple" alt="License">
 </p>
@@ -23,6 +25,7 @@
 
 | | TR | EN |
 |---|---|---|
+| 🔀 | **İki motor**: Whisper (yerel, varsayılan) · Gemini 3.5 Transcribe (bulut) | **Two engines**: Whisper (local, default) · Gemini 3.5 Transcribe (cloud) |
 | 📦 | **Toplu işleme** — birden çok dosyayı sıraya al, model bir kez yüklenir | **Batch processing** — queue multiple files, model loaded once |
 | ↕️ | Kuyrukta sıra değiştirme (▲ / ▼) ve tek tek kaldırma | Reorder queue (▲ / ▼) and remove items |
 | 🧾 | **Çoklu çıktı biçimi**: SRT · VTT · TXT · JSON | **Multi-format output**: SRT · VTT · TXT · JSON |
@@ -92,6 +95,77 @@ AutoSRT.vbs
 4. İlerleme çubuğu, ETA ve Günlük panelinden takip edin.
 5. "Kaydetmeden önce düzenle" açıksa her dosya için düzenleyici açılır; değilse seçili biçimler doğrudan kaydedilir. Bitince Windows bildirimi gelir.
 
+### Motor seçimi / Engine selection
+
+Sol paneldeki **MOTOR** düğmesiyle iki motor arasında geçiş yapılır. Varsayılan
+**Whisper (yerel)**'dir ve öyle kalır — Gemini tamamen isteğe bağlı bir eklentidir.
+
+| | Whisper (yerel) | Gemini (bulut) |
+|---|---|---|
+| Nerede çalışır | Kendi GPU'nuzda | Google sunucularında |
+| İnternet | Gerekmez | Gerekir |
+| Ücret | Yok | API kullanımı ücretlidir |
+| Gizlilik | Dosya bilgisayardan çıkmaz | **Dosya Google'a yüklenir** |
+| Kurulum | Model indirilir (~3 GB) | API anahtarı |
+| Sol panelde | Model seçici görünür | API anahtarı alanı görünür |
+
+Motorlardan hangisi seçilirse seçilsin **altyazı üretimi aynıdır**: mikro-dilimleme,
+karakter sınırı, min. süre, cümle-sonu bölme, düzenleyici ve tüm çıktı biçimleri
+ortaktır. Motor yalnızca "kelime + zaman damgası" listesini üretir.
+
+### Gemini kurulumu / Gemini setup
+
+```bash
+pip install google-genai
+```
+
+API anahtarını [Google AI Studio](https://aistudio.google.com/)'dan alın, sonra
+**iki yoldan biriyle** verin (öncelik sırası bu şekildedir):
+
+```bash
+# 1) Ortam değişkeni (önerilen — hiçbir yere yazılmaz)
+setx GEMINI_API_KEY "anahtariniz"        # Windows
+export GEMINI_API_KEY="anahtariniz"      # bash
+```
+
+**2)** Ya da motoru "Gemini (bulut)" yapıp kenar çubuğundaki **GEMINI API ANAHTARI**
+alanına yapıştırın. Bu anahtar `%APPDATA%\AutoSRT\secrets.json` dosyasına —
+yani **proje klasörünün dışına** — kaydedilir; `settings.json`'a yazılmaz ve
+depoya hiçbir zaman girmez. Anahtar yoksa motor seçilemez ve günlükte net bir
+uyarı çıkar.
+
+> ⚠️ **Gizlilik uyarısı:** Gemini modu seçili ses dosyanızı Google sunucularına
+> **yükler**. İş bittiğinde (hata alınsa bile) yüklenen dosya Files API'den
+> otomatik olarak silinir, geçici WAV dosyaları da temizlenir. Verinizin
+> bilgisayardan çıkmasını istemiyorsanız Whisper motorunu kullanın.
+
+> ⏱️ **Süre limiti:** Kelime zaman damgası açıkken Gemini tek istekte en fazla
+> **30 dakika** ses kabul eder. AutoSRT daha uzun dosyaları otomatik olarak
+> ~25 dakikalık parçalara böler, bölme noktalarını **sessizliğe** hizalar
+> (kelime ortasında kesmemek için), her parçanın zaman damgalarına kendi
+> ofsetini ekler ve parça sınırlarındaki çakışmaları düzeltir. Bu tamamen
+> saydamdır — tek bir altyazı dosyası alırsınız.
+
+**Ayarların karşılığı:** Kaynak dil seçimi BCP-47 koduna çevrilir (`tr` → `tr-TR`,
+`az` → `az-AZ`); "Otomatik" seçiliyken dil algılama Gemini'ye bırakılır. Terim
+ipucu virgülle ayrılır ve ilk 100 terim `custom_vocabulary` olarak gönderilir
+(Whisper'da aynı alan `initial_prompt` olarak kullanılır).
+
+### Motorları karşılaştırma / Comparing engines
+
+Hangi motorun sizin içeriğinizde daha iyi olduğunu tahmin etmek yerine ölçün:
+
+```bash
+python compare_engines.py "video.mp4"
+python compare_engines.py "video.mp4" --lang tr --terms "Ada,Bora"
+python compare_engines.py "video.mp4" --only whisper
+```
+
+Aynı dosyayı iki motorla da işler, `video.whisper.srt` ve `video.gemini.srt`
+üretir; blok sayısı, kelime sayısı, karakter sayısı, ilk/son blok zaman damgası
+ve işlem süresini karşılaştırmalı tablo olarak yazar. Gemini için anahtar yoksa
+o motoru atlar.
+
 ### Toplu işleme / Batch
 - Birden çok dosya kuyruğa alınır ve **sırayla** işlenir; model yalnızca **bir kez** yüklenir (sonraki dosyalar hızlı).
 - ▲ / ▼ ile sırayı değiştirin, ✕ ile kaldırın, "Tümünü temizle" ile sıfırlayın.
@@ -122,10 +196,14 @@ Altyazıların ekranda "şak şak" hızlı geçmesini engellemek için:
 customtkinter>=5.2.2
 tkinterdnd2>=0.4.2
 winotify>=1.1.0
-faster-whisper>=1.0.3
+faster-whisper>=1.0.3      # Motor 1 (yerel, varsayılan)
+google-genai>=2.20.0       # Motor 2 (bulut, isteğe bağlı)
 nvidia-cublas-cu12
 nvidia-cudnn-cu12
 ```
+
+`google-genai` kurulu değilse uygulama normal açılır; yalnızca Gemini motoru
+devre dışı görünür. Whisper hiçbir şekilde etkilenmez.
 
 ---
 
@@ -133,8 +211,9 @@ nvidia-cudnn-cu12
 
 ```
 AutoSRT/
-├── main.py          # Tek dosya uygulama — GUI + transcribe motoru
-├── AutoSRT.vbs      # Konsolsuz Windows başlatıcısı
+├── main.py            # Tek dosya uygulama — GUI + motor katmanı
+├── compare_engines.py # İki motoru aynı dosyada ölçüp karşılaştıran yardımcı
+├── AutoSRT.vbs        # Konsolsuz Windows başlatıcısı
 ├── icon.png         # Master ikon (1024×1024)
 ├── icon.ico         # Pencere / kısayol ikonu (çok boyutlu)
 ├── requirements.txt
@@ -148,6 +227,20 @@ AutoSRT/
 - Thread ↔ GUI iletişimi yalnız `queue.Queue` + `after(80ms)` polling ile yapılır (Tkinter thread-safety).
 - Yerleşik düzenleyici de bu kanaldan açılır: worker `Event` ile bekler, GUI pencereyi açar; "Durdur" sırasında editör güvenle kapatılır (kilitlenme yok).
 - `sys.stdout/stderr` günlük kuyruğuna yönlendirilir → model indirme ilerlemesi de panelde görünür.
+
+**Motor katmanı:**
+- `TranscriptionEngine.transcribe(audio_path, language, vocab_hint, progress_cb, stop_event)`
+  her motor için **aynı** sözleşmeyi döndürür:
+  `[{"word": str, "start": float, "end": float, "seg_end": bool}, ...]`
+- `WhisperEngine` — faster-whisper; model önbelleği, VRAM tahliyesi, CPU fallback
+  ve VAD ön-taraması burada.
+- `GeminiEngine` — Gemini 3.5 Transcribe; `verbatim` modda kelime zaman damgası
+  (`smart` mod zaman damgasıyla uyumsuzdur, kullanılmaz), 25 dk'lık parçalama,
+  429/5xx için üstel geri çekilmeli 3 deneme, yüklenen dosyanın garantili silinmesi.
+  Ses çıkarma **PyAV** ile yapılır (faster-whisper ile gelir) — sistemde ayrıca
+  ffmpeg/ffprobe kurulu olması gerekmez.
+- Dilimleme, `_sanitize_blocks` ve dosya yazıcıları iki motor için de **ortaktır**;
+  motor değiştirmek altyazı biçimlendirmesini etkilemez.
 
 **Mikro-dilimleme mantığı (varsayılan `max_chars=45`):**
 - `word_timestamps=True` ile kelime düzeyinde zaman damgası alınır.
