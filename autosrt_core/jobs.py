@@ -17,7 +17,7 @@ satırlardan yeniden planlanır. Bu sayede otomatik mod (10 dk parça) ile manue
 mod (5 dk parça) aynı checkpoint'i paylaşır ve iş ortasında geçiş yapılabilir.
 
 Her aşamanın bir parmak izi (fingerprint) vardır: o aşamanın sonucunu etkileyen
-ayarlar değişirse aşama ve ondan SONRAKİ aşamalar geçersiz sayılır.
+ayarlar değişirse aşama ve ona BAĞLI aşamalar geçersiz sayılır (Job.DEPENDENTS).
 """
 import hashlib
 import json
@@ -105,22 +105,31 @@ class Job:
     def stage_info(self, stage):
         return self.manifest["stages"].get(stage) or {}
 
-    def invalidate_from(self, stage):
-        """stage ve sonrasındaki aşamaları geçersiz kıl (dosyaları da sil)."""
-        idx = STAGES.index(stage)
-        for s in STAGES[idx:]:
+    # Bağımlılık grafiği: bir aşama değişince hangi aşamalar geçersizleşir.
+    # Parakeet yalnız sese bağlıdır — Whisper ayarı değişince yeniden ÇALIŞMAZ.
+    DEPENDENTS = {
+        "audio": ("audio", "whisper", "parakeet", "lines", "gemini"),
+        "whisper": ("whisper", "lines", "gemini"),
+        "parakeet": ("parakeet", "lines", "gemini"),
+        "lines": ("lines", "gemini"),
+        "gemini": ("gemini",),
+    }
+
+    def invalidate(self, stage):
+        """stage'i ve ona bağlı aşamaları geçersiz kıl (dosyalarıyla birlikte).
+        Satırlar değişirse Gemini sonuçları (id'ye bağlı) ve manuel paketler de gider."""
+        for s in self.DEPENDENTS[stage]:
             st = self.manifest["stages"].pop(s, None)
             if st and st.get("file"):
                 try:
                     os.remove(self.path(st["file"]))
                 except OSError:
                     pass
-        if idx <= STAGES.index("gemini"):
-            for f in ("results.json",):
-                try:
-                    os.remove(self.path(f))
-                except OSError:
-                    pass
+        if "gemini" in self.DEPENDENTS[stage]:
+            try:
+                os.remove(self.path("results.json"))
+            except OSError:
+                pass
             shutil.rmtree(os.path.join(self.dir, "manual"), ignore_errors=True)
         self._save()
 
